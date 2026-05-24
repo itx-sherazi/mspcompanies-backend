@@ -34,7 +34,7 @@ app.use(cookieParser());
 
 
 app.get("/", (req, res) => {
-  res.send("API Running");
+  res.send("MSP Companies API v1.0 - Running");
 });
 const userRoutes = require("./router/userRoutes.js");
 app.use("/api/v1", cityRoutes);
