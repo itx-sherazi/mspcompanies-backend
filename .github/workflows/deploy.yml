@@ -30,7 +30,7 @@ jobs:
             git pull origin main
 
             echo "Installing dependencies..."
-            npm install --production
+            npm install
 
             echo "Restarting PM2..."
             pm2 restart msp-backend || pm2 start index.js --name msp-backend
