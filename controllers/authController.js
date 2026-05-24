@@ -6,7 +6,6 @@ exports.signin = async (req, res) => {
   try {
     const { name, email, password } = req.body;
     
-    // Check if user already exists
     const existingUser = await AdminUser.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ ok: false, message: "User already exists" });
