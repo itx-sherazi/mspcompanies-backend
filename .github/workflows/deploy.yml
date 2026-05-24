@@ -18,9 +18,8 @@ jobs:
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
-          password: ${{ secrets.SSH_PASSWORD }}
+          key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          use_insecure_cipher: true
           script: |
             cd ~/htdocs/api.mspcompanies.us/mspcompanies-backend
 
