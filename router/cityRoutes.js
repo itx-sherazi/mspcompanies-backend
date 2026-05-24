@@ -29,7 +29,6 @@ const hubCompanyImageUpload = multer({
   },
 });
 
-// Public read (for Next.js site) literal path before :param routes
 router.get(
   "/public/hubs/managed-service-providers/sitemap-entries",
   getManagedItHubSitemapEntries,
