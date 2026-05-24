@@ -5,6 +5,7 @@ const cookieParser = require("cookie-parser");
 const connectDB = require("./config/db");
 const cityRoutes = require("./router/cityRoutes.js");
 const blogRoutes = require("./router/blogRoutes.js");
+const emailRoutes = require("./router/emailRoutes.js");
 
 dotenv.config();
 
@@ -40,6 +41,7 @@ const userRoutes = require("./router/userRoutes.js");
 app.use("/api/v1", cityRoutes);
 app.use("/api/v1", userRoutes);
 app.use("/api/v1", blogRoutes);
+app.use("/api/v1", emailRoutes);
 
 const PORT = process.env.PORT || 5000;
 
