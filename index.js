@@ -22,6 +22,8 @@ const allowedOrigins = [
   "https://dashboard.mspcompanies.us",
   "https://api.mspcompanies.us",
   "https://*.mspcompanies.us",
+  "https://mspcompanies-dashboard.vercel.app",
+  "https://www.mspcompanies-dashboard.vercel.app"
 ];
 app.use(cors({
   origin: (origin, callback) => {
