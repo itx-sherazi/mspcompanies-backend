@@ -7,6 +7,20 @@ const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcate
 
 const HUB_MANAGED_IT = "managed-service-providers";
 
+async function revalidateFrontend(paths = ["/msp"]) {
+  try {
+    const base = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+    const secret = process.env.REVALIDATE_SECRET || "";
+    await fetch(`${base}/api/revalidate?secret=${secret}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths }),
+    });
+  } catch (_) {
+    // non-blocking — revalidation failure should not break the API response
+  }
+}
+
 function normalizeCityFaqs(input) {
   if (!Array.isArray(input)) return [];
   return input
@@ -445,6 +459,7 @@ exports.createCity = async (req, res) => {
       hubCompanies: [],
     });
 
+    revalidateFrontend(["/msp", `/msp/${city.slug}`]);
     res.status(201).json({ ok: true, data: city });
   } catch (err) {
     console.error("createCity:", err);
@@ -529,6 +544,7 @@ exports.updateCity = async (req, res) => {
     }
 
     await city.save();
+    revalidateFrontend(["/msp", `/msp/${city.slug}`]);
     res.json({ ok: true, data: city });
   } catch (err) {
     console.error("updateCity:", err);
