@@ -4,16 +4,17 @@ const AdminUser = require("../models/AdminUser");
 exports.adminAuthMiddleware = async (req, res, next) => {
   try {
     
-    // Get token from cookies
-    const token = req.cookies.adminToken;
-    
-    // Check if token exists
+    // Get token from Authorization header OR cookie
+    let token = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    } else {
+      token = req.cookies.adminToken;
+    }
+
     if (!token) {
-      console.log("No token found");
-      return res.status(401).json({
-        ok: false,
-        message: "please login first"
-      });
+      return res.status(401).json({ ok: false, message: "please login first" });
     }
 
     // Verify token

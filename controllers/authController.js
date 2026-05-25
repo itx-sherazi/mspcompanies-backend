@@ -47,13 +47,15 @@ exports.login = async (req, res) => {
       { expiresIn: "1d" }
     );
 
+    const isProduction = process.env.NODE_ENV === "production";
     res.cookie("adminToken", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 24 * 60 * 60 * 1000,
     });
 
-    return res.status(200).json({ ok: true, message: "Logged in successfully", user: { id: user._id, name: user.name, email: user.email } });
+    return res.status(200).json({ ok: true, message: "Logged in successfully", token, user: { id: user._id, name: user.name, email: user.email } });
   } catch (error) {
     console.error("Login error:", error);
     return res.status(500).json({ ok: false, message: "Internal server error" });
