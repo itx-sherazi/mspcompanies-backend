@@ -16,6 +16,7 @@ const {
   updateHubCompany,
   uploadCityCompaniesExcel,
   toggleSponsoredHubCompany,
+  searchCompanies,
 } = require("../controllers/cityController.js");
 
 const router = express.Router();
@@ -34,6 +35,7 @@ router.get(
   getManagedItHubSitemapEntries,
 );
 router.get("/public/hubs/:hubSlug/cities", getPublishedCitiesByHub);
+router.get("/companies/search", searchCompanies);
 router.get(
   "/public/hubs/:hubSlug/cities/:citySlug/companies/:companySlug",
   getCityCompanyPublicByHub,

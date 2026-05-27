@@ -6,6 +6,7 @@ const connectDB = require("./config/db");
 const cityRoutes = require("./router/cityRoutes.js");
 const blogRoutes = require("./router/blogRoutes.js");
 const emailRoutes = require("./router/emailRoutes.js");
+const listingRequestRoutes = require("./router/listingRequestRoutes.js");
 
 dotenv.config();
 
@@ -31,7 +32,10 @@ app.use(cors({
     else callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 }));
+app.options(/(.*)/, cors());
 app.use(express.json());
 app.use(cookieParser());
 
@@ -44,6 +48,7 @@ app.use("/api/v1", cityRoutes);
 app.use("/api/v1", userRoutes);
 app.use("/api/v1", blogRoutes);
 app.use("/api/v1", emailRoutes);
+app.use("/api/v1", listingRequestRoutes);
 
 const PORT = process.env.PORT || 5000;
 

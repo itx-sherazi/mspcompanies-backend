@@ -17,7 +17,7 @@ async function revalidateFrontend(paths = ["/msp"]) {
       body: JSON.stringify({ paths }),
     });
   } catch (_) {
-    // non-blocking — revalidation failure should not break the API response
+    // non-blocking revalidation failure should not break the API response
   }
 }
 
@@ -852,5 +852,45 @@ exports.uploadCityCompaniesExcel = async (req, res) => {
       error:
         process.env.NODE_ENV === "development" ? err.message : undefined,
     });
+  }
+};
+
+// Public: search companies by name across all cities
+exports.searchCompanies = async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const limit = Math.min(parseInt(req.query.limit) || 8, 20);
+    if (!q) return res.json({ ok: true, data: [] });
+
+    const cities = await City.find({ hubSlug: HUB_MANAGED_IT, isPublished: true })
+      .select("slug name hubCompanies")
+      .lean();
+
+    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const matches = [];
+
+    for (const city of cities) {
+      if (matches.length >= limit) break;
+      for (const company of (city.hubCompanies || [])) {
+        if (matches.length >= limit) break;
+        if (company.companyName && regex.test(company.companyName)) {
+          matches.push({
+            companyName: company.companyName,
+            slug: company.slug,
+            citySlug: city.slug,
+            cityName: city.name,
+            image: company.image || "",
+            website: company.website || "",
+            companyCity: company.companyCity || "",
+            companyState: company.companyState || "",
+          });
+        }
+      }
+    }
+
+    res.json({ ok: true, data: matches });
+  } catch (err) {
+    console.error("searchCompanies:", err);
+    res.status(500).json({ ok: false, message: "Server error" });
   }
 };

@@ -30,7 +30,7 @@ exports.leadPopup = async (req, res) => {
     await transporter.sendMail({
       from: FROM_EMAIL,
       to: ADMIN_EMAIL,
-      subject: `New Lead: ${email} — ${pagePath || "/"}`,
+      subject: `New Lead: ${email} ${pagePath || "/"}`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <h2 style="color:#0356A6;border-bottom:2px solid #0356A6;padding-bottom:8px">New Lead Popup Submission</h2>
@@ -50,7 +50,7 @@ exports.leadPopup = async (req, res) => {
     await transporter.sendMail({
       from: FROM_EMAIL,
       to: email,
-      subject: "Your MSP Data Request — MSP Companies",
+      subject: "Your MSP Data Request MSP Companies",
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <div style="background:#0356A6;padding:24px;text-align:center">
@@ -100,7 +100,7 @@ exports.contactForm = async (req, res) => {
     await transporter.sendMail({
       from: FROM_EMAIL,
       to: ADMIN_EMAIL,
-      subject: `Contact Form: ${subject || "New Enquiry"} — ${firstName} ${lastName || ""}`,
+      subject: `Contact Form: ${subject || "New Enquiry"} ${firstName} ${lastName || ""}`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <h2 style="color:#0356A6;border-bottom:2px solid #0356A6;padding-bottom:8px">New Contact Form Submission</h2>
@@ -120,7 +120,7 @@ exports.contactForm = async (req, res) => {
     await transporter.sendMail({
       from: FROM_EMAIL,
       to: email,
-      subject: "We received your message — MSP Companies",
+      subject: "We received your message MSP Companies",
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <div style="background:#0356A6;padding:24px;text-align:center">
@@ -165,7 +165,7 @@ exports.emailListForm = async (req, res) => {
     await transporter.sendMail({
       from: FROM_EMAIL,
       to: ADMIN_EMAIL,
-      subject: `Email List Request: ${subject || "New Request"} — ${firstName} ${lastName || ""}`,
+      subject: `Email List Request: ${subject || "New Request"} ${firstName} ${lastName || ""}`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <h2 style="color:#0356A6;border-bottom:2px solid #0356A6;padding-bottom:8px">New Email List Request</h2>
@@ -185,7 +185,7 @@ exports.emailListForm = async (req, res) => {
     await transporter.sendMail({
       from: FROM_EMAIL,
       to: email,
-      subject: "MSP Email List Request Received — MSP Companies",
+      subject: "MSP Email List Request Received MSP Companies",
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <div style="background:#0356A6;padding:24px;text-align:center">
