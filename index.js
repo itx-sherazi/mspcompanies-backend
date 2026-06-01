@@ -3,13 +3,8 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const connectDB = require("./config/db");
-const cityRoutes = require("./router/cityRoutes.js");
-const blogRoutes = require("./router/blogRoutes.js");
-const emailRoutes = require("./router/emailRoutes.js");
-const listingRequestRoutes = require("./router/listingRequestRoutes.js");
 
 dotenv.config();
-
 connectDB();
 
 const app = express();
@@ -24,8 +19,9 @@ const allowedOrigins = [
   "https://api.mspcompanies.us",
   "https://*.mspcompanies.us",
   "https://mspcompanies-dashboard.vercel.app",
-  "https://www.mspcompanies-dashboard.vercel.app"
+  "https://www.mspcompanies-dashboard.vercel.app",
 ];
+
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) callback(null, true);
@@ -39,19 +35,19 @@ app.options(/(.*)/, cors());
 app.use(express.json());
 app.use(cookieParser());
 
-
 app.get("/", (req, res) => {
   res.send("MSP Companies API v1.0 - Running");
 });
-const userRoutes = require("./router/userRoutes.js");
-app.use("/api/v1", cityRoutes);
-app.use("/api/v1", userRoutes);
-app.use("/api/v1", blogRoutes);
-app.use("/api/v1", emailRoutes);
-app.use("/api/v1", listingRequestRoutes);
+
+app.use("/api/v1", require("./router/userRoutes"));
+app.use("/api/v1", require("./router/cityRoutes"));
+app.use("/api/v1", require("./router/blogRoutes"));
+app.use("/api/v1", require("./router/emailRoutes"));
+app.use("/api/v1", require("./router/listingRequestRoutes"));
+app.use("/api/v1", require("./router/ServiceRoute"));
+app.use("/api/v1", require("./router/CompanyTeamRoute"));
 
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

@@ -29,7 +29,7 @@ router.get("/latest-posts", getLatestPosts);
 router.get("/get-sitemapblog", getBlogsSitemap);
 
 // Admin
-router.post("/creat", adminAuthMiddleware, upload.single("image"), createBlog);
+router.post("/create", adminAuthMiddleware, upload.single("image"), createBlog);
 router.put("/update/:id", adminAuthMiddleware, upload.single("image"), updateBlog);
 router.delete("/blogdelete/:id", adminAuthMiddleware, deleteBlog);
 

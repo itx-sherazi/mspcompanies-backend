@@ -283,15 +283,6 @@ exports.submitListingRequest = async (req, res) => {
             </td>
           </tr>
 
-          <!-- Reddit Community -->
-          <tr>
-            <td style="padding:10px 30px 30px;text-align:center;">
-              <a href="https://www.reddit.com/r/MSPHub/" style="display:inline-block;background-color:#FF4500;color:#ffffff;padding:12px 28px;font-size:14px;font-weight:700;text-decoration:none;border-radius:8px;">
-                Join our Reddit Community — r/MSPHub
-              </a>
-              <p style="margin:8px 0 0;font-size:12px;color:#9ca3af;">Connect with MSP professionals, share insights, and grow your network.</p>
-            </td>
-          </tr>
 
           <!-- Footer -->
           <tr>
