@@ -46,6 +46,7 @@ app.use("/api/v1", require("./router/emailRoutes"));
 app.use("/api/v1", require("./router/listingRequestRoutes"));
 app.use("/api/v1", require("./router/ServiceRoute"));
 app.use("/api/v1", require("./router/CompanyTeamRoute"));
+app.use("/api/v1", require("./router/managedItRoutes"));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
