@@ -57,7 +57,8 @@ exports.createBlog = async (req, res) => {
       published: published === "true" || published === true,
     });
 
-    res.status(201).json({ message: "Blog created successfully", data: blog });
+    const { body: _body, ...blogObj } = blog.toObject();
+    res.status(201).json({ message: "Blog created successfully", data: blogObj });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(409).json({ message: "A blog with this slug already exists" });
@@ -70,7 +71,7 @@ exports.createBlog = async (req, res) => {
 // PUT /api/v1/update/:id
 exports.updateBlog = async (req, res) => {
   try {
-    const { title, slug, body, category, tags, author, metaTitle, metaDescription, faqs } = req.body;
+    const { title, slug, body, category, tags, author, metaTitle, metaDescription, faqs, published } = req.body;
 
     const blog = await Blog.findById(req.params.id);
     if (!blog) return res.status(404).json({ message: "Blog not found" });
@@ -109,7 +110,8 @@ exports.updateBlog = async (req, res) => {
     }
 
     await blog.save();
-    res.json({ message: "Blog updated successfully", data: blog });
+    const { body: _body, ...blogObj } = blog.toObject();
+    res.json({ message: "Blog updated successfully", data: blogObj });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(409).json({ message: "A blog with this slug already exists" });
@@ -153,6 +155,18 @@ exports.getBlogs = async (req, res) => {
     });
   } catch (error) {
     console.error("getBlogs error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// GET /api/v1/admin/blog/:id  (admin — single blog with full body)
+exports.getBlogByIdAdmin = async (req, res) => {
+  try {
+    const blog = await Blog.findById(req.params.id);
+    if (!blog) return res.status(404).json({ message: "Blog not found" });
+    res.json({ data: blog });
+  } catch (error) {
+    console.error("getBlogByIdAdmin error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };

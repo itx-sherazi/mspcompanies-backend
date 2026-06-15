@@ -7,6 +7,7 @@ const {
   deleteBlog,
   getBlogs,
   getAllBlogsAdmin,
+  getBlogByIdAdmin,
   getBlogBySlug,
   getLatestPosts,
   getBlogsSitemap,
@@ -31,6 +32,7 @@ router.get("/get-sitemapblog", getBlogsSitemap);
 
 // Admin
 router.get("/admin/all", adminAuthMiddleware, getAllBlogsAdmin);
+router.get("/admin/blog/:id", adminAuthMiddleware, getBlogByIdAdmin);
 router.post("/create", adminAuthMiddleware, upload.single("image"), createBlog);
 router.put("/update/:id", adminAuthMiddleware, upload.single("image"), updateBlog);
 router.delete("/blogdelete/:id", adminAuthMiddleware, deleteBlog);
