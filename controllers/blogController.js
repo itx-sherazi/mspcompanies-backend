@@ -18,7 +18,7 @@ async function uploadToCloudinary(buffer, mimetype) {
 // POST /api/v1/creat
 exports.createBlog = async (req, res) => {
   try {
-    const { title, slug, body, category, tags, author, metaTitle, metaDescription, faqs } = req.body;
+    const { title, slug, body, category, tags, author, metaTitle, metaDescription, faqs, published } = req.body;
 
     if (!title || !slug) {
       return res.status(400).json({ message: "Title and slug are required" });
@@ -54,6 +54,7 @@ exports.createBlog = async (req, res) => {
       metaTitle: metaTitle || "",
       metaDescription: metaDescription || "",
       faqs: parsedFaqs,
+      published: published === "true" || published === true,
     });
 
     res.status(201).json({ message: "Blog created successfully", data: blog });
@@ -103,6 +104,9 @@ exports.updateBlog = async (req, res) => {
     blog.metaTitle = metaTitle !== undefined ? metaTitle : blog.metaTitle;
     blog.metaDescription = metaDescription !== undefined ? metaDescription : blog.metaDescription;
     blog.faqs = parsedFaqs;
+    if (published !== undefined) {
+      blog.published = published === "true" || published === true;
+    }
 
     await blog.save();
     res.json({ message: "Blog updated successfully", data: blog });
@@ -127,7 +131,7 @@ exports.deleteBlog = async (req, res) => {
   }
 };
 
-// GET /api/v1/get?page=1&limit=10
+// GET /api/v1/get?page=1&limit=10  (public — only published)
 exports.getBlogs = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -149,6 +153,32 @@ exports.getBlogs = async (req, res) => {
     });
   } catch (error) {
     console.error("getBlogs error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// GET /api/v1/admin/all?page=1&limit=10  (admin — all blogs including drafts)
+exports.getAllBlogsAdmin = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 10);
+    const skip = (page - 1) * limit;
+
+    const total = await Blog.countDocuments({});
+    const blogs = await Blog.find({})
+      .sort({ date: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select("-body");
+
+    res.json({
+      data: blogs,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalBlogs: total,
+    });
+  } catch (error) {
+    console.error("getAllBlogsAdmin error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };

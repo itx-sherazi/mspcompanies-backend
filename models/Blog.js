@@ -17,7 +17,7 @@ const blogSchema = new mongoose.Schema(
     metaTitle: { type: String, default: "", trim: true },
     metaDescription: { type: String, default: "", trim: true },
     faqs: { type: [faqSchema], default: [] },
-    published: { type: Boolean, default: true },
+    published: { type: Boolean, default: false },
   },
   { timestamps: { createdAt: "date", updatedAt: "updatedAt" } }
 );
