@@ -50,7 +50,7 @@ exports.leadPopup = async (req, res) => {
     await transporter.sendMail({
       from: FROM_EMAIL,
       to: email,
-      subject: "⚠️ One Step Left — Reply to Get Your Free MSP Data",
+      subject: "⚠️ One Step Left 150,000 Reply to Get Your Free MSP Data",
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
 
@@ -79,7 +79,7 @@ exports.leadPopup = async (req, res) => {
             <!-- Urgency -->
             <div style="background:#fff8e1;border:1px solid #f6c90e;border-radius:8px;padding:14px 18px;margin:0 0 28px;text-align:center">
               <p style="margin:0;color:#856404;font-size:13px;font-weight:bold">
-                We hold your sample for <span style="color:#c0392b">48 hours</span> — reply before it expires.
+                We hold your sample for <span style="color:#c0392b">48 hours</span> 150,000 reply before it expires.
               </p>
             </div>
 

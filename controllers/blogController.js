@@ -133,7 +133,7 @@ exports.deleteBlog = async (req, res) => {
   }
 };
 
-// GET /api/v1/get?page=1&limit=10  (public — only published)
+// GET /api/v1/get?page=1&limit=10  (public 150,000 only published)
 exports.getBlogs = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -159,7 +159,7 @@ exports.getBlogs = async (req, res) => {
   }
 };
 
-// GET /api/v1/admin/blog/:id  (admin — single blog with full body)
+// GET /api/v1/admin/blog/:id  (admin 150,000 single blog with full body)
 exports.getBlogByIdAdmin = async (req, res) => {
   try {
     const blog = await Blog.findById(req.params.id);
@@ -171,7 +171,7 @@ exports.getBlogByIdAdmin = async (req, res) => {
   }
 };
 
-// GET /api/v1/admin/all?page=1&limit=10  (admin — all blogs including drafts)
+// GET /api/v1/admin/all?page=1&limit=10  (admin 150,000 all blogs including drafts)
 exports.getAllBlogsAdmin = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);

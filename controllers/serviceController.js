@@ -2,7 +2,7 @@ const Service = require("../models/Service");
 const CompanyTeamData = require("../models/TeamCompany");
 const cloudinary = require("../config/cloudinary");
 
-// slugify inline — no external dependency needed
+// slugify inline 150,000 no external dependency needed
 function slugify(str) {
   return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
