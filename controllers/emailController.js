@@ -57,7 +57,6 @@ exports.leadPopup = async (req, res) => {
           <!-- Header -->
           <div style="background:#0356A6;padding:28px 24px;text-align:center">
             <h1 style="color:white;margin:0;font-size:22px;letter-spacing:0.5px">MSP Companies</h1>
-            <p style="color:#b3d4f5;margin:6px 0 0;font-size:13px">mspcompanies.us</p>
           </div>
 
           <!-- Body -->
@@ -66,7 +65,7 @@ exports.leadPopup = async (req, res) => {
             <p style="font-size:15px;color:#555;margin:0 0 8px">You are one reply away from receiving your free MSP data sample.</p>
 
             <h2 style="color:#0F1C36;font-size:24px;margin:0 0 20px;line-height:1.3">
-              👋 Just <span style="color:#e53e3e">reply with the COUNTRY</span> you need sample from and we'll send your sample within <span style="color:#0356A6">12 hours.</span>
+              Just <span style="color:#e53e3e">reply with the COUNTRY</span> you need sample from and we'll send your sample within <span style="color:#0356A6">12 hours.</span>
             </h2>
 
             <!-- Big Reply Button -->
@@ -80,13 +79,13 @@ exports.leadPopup = async (req, res) => {
             <!-- Urgency -->
             <div style="background:#fff8e1;border:1px solid #f6c90e;border-radius:8px;padding:14px 18px;margin:0 0 28px;text-align:center">
               <p style="margin:0;color:#856404;font-size:13px;font-weight:bold">
-                ⏳ We hold your sample for <span style="color:#c0392b">48 hours</span> — reply before it expires.
+                We hold your sample for <span style="color:#c0392b">48 hours</span> — reply before it expires.
               </p>
             </div>
 
             <!-- What you get -->
             <div style="background:#e8f0fe;border-radius:8px;padding:18px 20px;margin:0 0 8px">
-              <p style="margin:0 0 10px;color:#0356A6;font-weight:bold;font-size:13px;">📦 What's in your free sample:</p>
+              <p style="margin:0 0 10px;color:#0356A6;font-weight:bold;font-size:13px;"> What's in your free sample:</p>
               <p style="margin:4px 0;color:#333;font-size:13px;">✔ Verified MSP company records</p>
               <p style="margin:4px 0;color:#333;font-size:13px;">✔ Decision maker contacts (CEO, CTO, IT Director)</p>
               <p style="margin:4px 0;color:#333;font-size:13px;">✔ Email, phone, LinkedIn & full firmographic data</p>
@@ -97,7 +96,7 @@ exports.leadPopup = async (req, res) => {
 
           <!-- Footer -->
           <div style="padding:18px 24px;text-align:center;background:#0F1C36">
-            <p style="color:#aaa;font-size:12px;margin:0">© 2026 MSP Companies · mspcompanies.us · <a href="mailto:info@mspcompanies.us" style="color:#aaa">info@mspcompanies.us</a></p>
+            <p style="color:#aaa;font-size:12px;margin:0">© 2026 MSP Companies · <a href="https://mspcompanies.us" style="color:#aaa">mspcompanies.us</a></p>
           </div>
 
         </div>
