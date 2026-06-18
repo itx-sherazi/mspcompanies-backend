@@ -55,12 +55,43 @@ exports.listCompanies = async (req, res) => {
     const skip  = (page - 1) * limit;
 
     const filter = { isPublished: true };
-    if (req.query.state)      filter.companyState    = { $regex: new RegExp(`^${req.query.state.trim()}$`, "i") };
-    if (req.query.city)       filter.companyCity     = { $regex: new RegExp(req.query.city.trim(), "i") };
-    if (req.query.industry)   filter.industry        = { $regex: new RegExp(req.query.industry.trim(), "i") };
-    if (req.query.service)    filter.companyServices = { $elemMatch: { $regex: new RegExp(req.query.service.trim(), "i") } };
-    if (req.query.technology) filter.technologies    = { $elemMatch: { $regex: new RegExp(req.query.technology.trim(), "i") } };
-    if (req.query.partner)    filter.companyPartners = { $elemMatch: { $regex: new RegExp(req.query.partner.trim(), "i") } };
+    if (req.query.state) filter.companyState = { $regex: new RegExp(`^${req.query.state.trim()}$`, "i") };
+
+    // city search — matches city, state, OR country
+    if (req.query.city) {
+      const cityRe = new RegExp(req.query.city.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$and = filter.$and || [];
+      filter.$and.push({ $or: [{ companyCity: cityRe }, { companyState: cityRe }, { companyCountry: cityRe }] });
+    }
+
+    if (req.query.industry) filter.industry = { $regex: new RegExp(req.query.industry.trim(), "i") };
+
+    // services — comma-separated multiple values (AND logic: must have all)
+    if (req.query.service) {
+      const svcs = req.query.service.split(",").map((s) => s.trim()).filter(Boolean);
+      if (svcs.length === 1) {
+        filter.companyServices = { $elemMatch: { $regex: new RegExp(svcs[0], "i") } };
+      } else if (svcs.length > 1) {
+        filter.$and = filter.$and || [];
+        svcs.forEach((s) => {
+          filter.$and.push({ companyServices: { $elemMatch: { $regex: new RegExp(s, "i") } } });
+        });
+      }
+    }
+
+    // partners — comma-separated multiple values (AND logic: must have all)
+    if (req.query.partner) {
+      const prts = req.query.partner.split(",").map((p) => p.trim()).filter(Boolean);
+      if (prts.length === 1) {
+        filter.companyPartners = { $elemMatch: { $regex: new RegExp(prts[0], "i") } };
+      } else if (prts.length > 1) {
+        filter.$and = filter.$and || [];
+        prts.forEach((p) => {
+          filter.$and.push({ companyPartners: { $elemMatch: { $regex: new RegExp(p, "i") } } });
+        });
+      }
+    }
+
     if (req.query.q) {
       const re = new RegExp(req.query.q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       filter.$or = [{ companyName: re }, { description: re }, { keywords: re }];
