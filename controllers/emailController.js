@@ -49,6 +49,7 @@ exports.leadPopup = async (req, res) => {
     // Plain text only — no HTML, better inbox delivery
     await transporter.sendMail({
       from: FROM_EMAIL,
+      replyTo: ADMIN_EMAIL,
       to: email,
       subject: "Re: Your Free MSP Data Sample",
       text: `Hi,
