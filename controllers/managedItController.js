@@ -57,7 +57,7 @@ exports.listCompanies = async (req, res) => {
     const filter = { isPublished: true };
     if (req.query.state) filter.companyState = { $regex: new RegExp(`^${req.query.state.trim()}$`, "i") };
 
-    // city search — matches city, state, OR country
+    // city search  matches city, state, OR country
     if (req.query.city) {
       const cityRe = new RegExp(req.query.city.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       filter.$and = filter.$and || [];
@@ -66,7 +66,7 @@ exports.listCompanies = async (req, res) => {
 
     if (req.query.industry) filter.industry = { $regex: new RegExp(req.query.industry.trim(), "i") };
 
-    // services — comma-separated multiple values (AND logic: must have all)
+    // services  comma-separated multiple values (AND logic: must have all)
     if (req.query.service) {
       const svcs = req.query.service.split(",").map((s) => s.trim()).filter(Boolean);
       if (svcs.length === 1) {
@@ -79,7 +79,7 @@ exports.listCompanies = async (req, res) => {
       }
     }
 
-    // partners — comma-separated multiple values (AND logic: must have all)
+    // partners  comma-separated multiple values (AND logic: must have all)
     if (req.query.partner) {
       const prts = req.query.partner.split(",").map((p) => p.trim()).filter(Boolean);
       if (prts.length === 1) {
