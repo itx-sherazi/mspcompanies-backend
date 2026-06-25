@@ -34,7 +34,7 @@ exports.leadPopup = async (req, res) => {
       `,
     });
 
-    // Plain text to user — better inbox delivery
+    // Plain text to user  better inbox delivery
     await resend.emails.send({
       from: FROM_EMAIL,
       replyTo: ADMIN_EMAIL,
@@ -94,7 +94,7 @@ exports.contactForm = async (req, res) => {
       `,
     });
 
-    // Confirmation to user — plain text
+    // Confirmation to user  plain text
     await resend.emails.send({
       from: FROM_EMAIL,
       replyTo: ADMIN_EMAIL,
@@ -104,7 +104,7 @@ exports.contactForm = async (req, res) => {
 
 Thank you for contacting MSP Companies. We have received your message and will respond within 12 hours.
 
-You can also share which region's data you need and any other requirements — our team will get back to you within 12 hours.
+You can also share which region's data you need and any other requirements  our team will get back to you within 12 hours.
 
 Your request summary:
 - Service: ${service || "Not specified"}
@@ -154,7 +154,7 @@ exports.emailListForm = async (req, res) => {
       `,
     });
 
-    // Confirmation to user — plain text
+    // Confirmation to user  plain text
     await resend.emails.send({
       from: FROM_EMAIL,
       replyTo: ADMIN_EMAIL,
