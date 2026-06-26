@@ -12,7 +12,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
-  "http://localhost:3007",
+  "http://localhost:3002",
   "https://mspcompanies.us",
   "https://www.mspcompanies.us",
   "https://dashboard.mspcompanies.us",
@@ -47,6 +47,7 @@ app.use("/api/v1", require("./router/listingRequestRoutes"));
 app.use("/api/v1", require("./router/ServiceRoute"));
 app.use("/api/v1", require("./router/CompanyTeamRoute"));
 app.use("/api/v1", require("./router/managedItRoutes"));
+app.use("/api/v1", require("./router/cyberSecurityRoutes"));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
