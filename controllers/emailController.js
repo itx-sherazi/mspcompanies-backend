@@ -39,18 +39,18 @@ exports.leadPopup = async (req, res) => {
       from: FROM_EMAIL,
       replyTo: ADMIN_EMAIL,
       to: email,
-      subject: "Re: Your Free MSP Data Sample",
+      subject: "Re: Your MSP Company Data Request",
       text: `Hi,
 
-You are one reply away from receiving your free MSP data sample. Just reply with the COUNTRY you need sample from and we'll send your sample within 12 hours.
+You are one reply away from receiving your MSP company data. Just reply with the COUNTRY you need data from and we'll send your data within 12 hours.
 
-What's in your free sample:
+What's included in your MSP data:
 - Verified MSP company records
 - Decision maker contacts (CEO, CTO, IT Director)
 - Email, phone, LinkedIn & full firmographic data
 - Ready-to-use Excel format
 
-Just hit Reply to this email to get your sample.
+Just hit Reply to this email to get your data.
 
 Best regards,
 MSP Companies Team
@@ -170,7 +170,7 @@ Please reply to this email with your requirements:
 - Specific job titles needed
 - Number of records required
 
-Our team will prepare a customized sample based on your needs.
+Our team will prepare a customized data list based on your needs.
 
 Best regards,
 MSP Companies Team
