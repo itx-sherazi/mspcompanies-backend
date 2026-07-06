@@ -30,6 +30,18 @@ function getTransporter() {
   });
 }
 
+function getListingTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.LISTING_SMTP_HOST || "smtp.gmail.com",
+    port: parseInt(process.env.LISTING_SMTP_PORT || "587"),
+    secure: false,
+    auth: {
+      user: process.env.LISTING_SMTP_USER,
+      pass: process.env.LISTING_SMTP_PASS,
+    },
+  });
+}
+
 // PUBLIC: Submit listing request
 exports.submitListingRequest = async (req, res) => {
   try {
@@ -96,13 +108,13 @@ exports.submitListingRequest = async (req, res) => {
     res.status(201).json({ ok: true, message: "Listing request submitted successfully" });
 
     try {
-      const transporter = getTransporter();
+      const transporter = getListingTransporter();
       const submittedAt = new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" });
 
       // ── Admin notification ──
       transporter.sendMail({
         from: `"MSP Companies" <${process.env.CONTACT_SMTP_USER}>`,
-        to: process.env.CONTACT_TO_EMAIL || process.env.CONTACT_SMTP_USER,
+        to: "editor@mspcompanies.us",
         subject: `🆕 New Listing Request: ${listing.companyName}`,
         html: `
 <!DOCTYPE html>
@@ -208,7 +220,7 @@ exports.submitListingRequest = async (req, res) => {
       // ── Confirmation to submitter ──
       const contactName = listing.personOfContact || listing.fullName || "there";
       transporter.sendMail({
-        from: `"MSP Companies" <${process.env.CONTACT_SMTP_USER}>`,
+        from: `"MSP Companies Listings" <editor@mspcompanies.us>`,
         to: listing.contactEmail,
         subject: `Action Required: Your MSP Companies listing next steps`,
         html: `
@@ -288,7 +300,7 @@ exports.submitListingRequest = async (req, res) => {
           <tr>
             <td style="background-color:#f9fafb;padding:30px 20px;text-align:center;border-top:1px solid #eaeaea;">
               <p style="margin:0 0 10px;font-size:13px;color:#6b7280;">
-                If you have any questions, just reply to this email or reach us at <a href="mailto:info@mspcompanies.us" style="color:#0356A6;text-decoration:none;">info@mspcompanies.us</a>
+                If you have any questions, just reply to this email or reach us at <a href="mailto:editor@mspcompanies.us" style="color:#0356A6;text-decoration:none;">editor@mspcompanies.us</a>
               </p>
               <p style="margin:0;font-size:12px;color:#9ca3af;">
                 &copy; ${new Date().getFullYear()} MSP Companies. All rights reserved.
