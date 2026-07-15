@@ -125,6 +125,76 @@ mspcompanies.us`,
   }
 };
 
+// ─── POST /api/v1/book-a-call ─────────────────────────────────────────────
+exports.bookACall = async (req, res) => {
+  const { firstName, lastName, email, phone, service, message } = req.body;
+
+  if (!firstName || !email) {
+    return res.status(400).json({ error: "First name and email are required" });
+  }
+
+  const fullName = `${firstName} ${lastName || ""}`.trim();
+
+  try {
+    // Email to admin
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      to: ADMIN_EMAIL,
+      subject: `Book a Call Request: ${service || "MSP Services"} ${fullName}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#0356A6;border-bottom:2px solid #0356A6;padding-bottom:8px">New Book a Call Request services-for-msps</h2>
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="padding:8px;font-weight:bold;color:#555;width:140px">Name:</td><td style="padding:8px">${fullName}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px"><a href="mailto:${email}">${email}</a></td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555">Phone:</td><td style="padding:8px">${phone || "Not provided"}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Service:</td><td style="padding:8px">${service || "Not specified"}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555;vertical-align:top">Message:</td><td style="padding:8px;white-space:pre-wrap">${message || "No message provided"}</td></tr>
+          </table>
+        </div>
+      `,
+    });
+
+    // Confirmation to user MSP growth services focused
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      replyTo: ADMIN_EMAIL,
+      to: email,
+      subject: "Your Consultation Request MSP Companies",
+      text: `Hi ${firstName},
+
+Thank you for requesting a consultation with MSP Companies!
+
+We've received your request for: ${service || "MSP Growth Services"}
+
+Our team will reach out within 12 hours to schedule your free 30-minute consultation call.
+
+On the call, we'll cover:
+- Which service best fits your MSP goals
+- Realistic timelines and what to expect
+- Pricing options and packages
+- Next steps to get started
+
+In the meantime, feel free to explore our resources:
+- MSP List (180,000+ companies): https://mspcompanies.us/msp-list
+- MSP Near Me Directory: https://mspcompanies.us/msp-near-me
+- Cybersecurity MSP Database: https://mspcompanies.us/cybersecurity-msp-database
+
+If you have any questions before your call, just reply to this email.
+
+Best regards,
+MSP Companies Team
+info@mspcompanies.us
+https://mspcompanies.us`,
+    });
+
+    res.json({ success: true, message: "Consultation request submitted successfully" });
+  } catch (error) {
+    console.error("bookACall email error:", error);
+    res.status(500).json({ error: "Failed to send email. Please try again." });
+  }
+};
+
 // ─── POST /api/v1/email-list ───────────────────────────────────────────────
 exports.emailListForm = async (req, res) => {
   const { firstName, lastName, email, phone, service, subject, message } = req.body;
