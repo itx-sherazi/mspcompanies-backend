@@ -32,7 +32,8 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 }));
 app.options(/(.*)/, cors());
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(cookieParser());
 
 app.get("/", (req, res) => {
@@ -48,6 +49,9 @@ app.use("/api/v1", require("./router/ServiceRoute"));
 app.use("/api/v1", require("./router/CompanyTeamRoute"));
 app.use("/api/v1", require("./router/managedItRoutes"));
 app.use("/api/v1", require("./router/cyberSecurityRoutes"));
+app.use("/api/v1/vendors",          require("./router/vendorRoutes"));
+app.use("/api/v1/categories",       require("./router/categoryRoutes"));
+app.use("/api/v1/parent-categories", require("./router/parentCategoryRoutes"));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
