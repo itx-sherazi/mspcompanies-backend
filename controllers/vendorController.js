@@ -6,6 +6,26 @@ function parseCSV(val) {
   return [];
 }
 
+function parseMspStatus(val) {
+  const v = String(val || "").trim().toLowerCase();
+  if (v === "yes" || v === "true") return "Yes";
+  if (v === "partial" || v === "limited") return "Partial";
+  if (v === "no" || v === "false") return "No";
+  return "";
+}
+
+function parseBool(val) {
+  const v = String(val || "").trim().toLowerCase();
+  return v === "yes" || v === "true" || v === "partial" || v === "limited";
+}
+
+function parseYesNo(val) {
+  const v = String(val || "").trim().toLowerCase();
+  if (v === "yes" || v === "true") return "Yes";
+  if (v === "no" || v === "false") return "No";
+  return "";
+}
+
 function cleanStr(val) {
   return String(val || "").trim().replace(/^'+/, "").replace(/'+$/, "");
 }
@@ -100,8 +120,10 @@ exports.createVendor = async (req, res) => {
       pricingModel:          String(req.body.pricingModel          || "").trim(),
       pricingNotes:          String(req.body.pricingNotes          || "").trim(),
       bestFor:               String(req.body.bestFor               || "").trim(),
-      mspPartnerProgram:     Boolean(req.body.mspPartnerProgram),
-      mspPartnerProgramNotes:String(req.body.mspPartnerProgramNotes|| "").trim(),
+      mspPartnerProgram:       Boolean(req.body.mspPartnerProgram),
+      mspPartnerProgramStatus: String(req.body.mspPartnerProgramStatus || "").trim(),
+      mspPartnerProgramNotes:  String(req.body.mspPartnerProgramNotes  || "").trim(),
+      multiTenancy:            String(req.body.multiTenancy || "").trim(),
       keyFeatures:    parseCSV(req.body.keyFeatures),
       integrations:   parseCSV(req.body.integrations),
       pros:           parseCSV(req.body.pros),
@@ -127,7 +149,8 @@ exports.updateVendor = async (req, res) => {
     if (!vendor) return res.status(404).json({ ok: false, error: "Vendor not found" });
 
     const stringFields = ["name","website","logoUrl","hq","companySize",
-      "description","pricingModel","pricingNotes","bestFor","mspPartnerProgramNotes",
+      "description","pricingModel","pricingNotes","bestFor",
+      "mspPartnerProgramNotes","mspPartnerProgramStatus","multiTenancy",
       "employees","industry","phone","street","city","state","country","postalCode","address",
       "linkedinUrl","facebookUrl","twitterUrl","sicCodes","naicsCodes"];
     for (const f of stringFields) {
@@ -178,6 +201,17 @@ exports.getVendorsBySlugs = async (req, res) => {
   }
 };
 
+// DELETE /api/v1/vendors  delete ALL vendors
+exports.deleteAllVendors = async (req, res) => {
+  try {
+    const result = await Vendor.deleteMany({});
+    res.json({ ok: true, deleted: result.deletedCount });
+  } catch (err) {
+    console.error("deleteAllVendors error:", err);
+    res.status(500).json({ ok: false, error: "Server error" });
+  }
+};
+
 // POST /api/v1/vendors/import  bulk upsert from sheet
 exports.importVendors = async (req, res) => {
   try {
@@ -192,8 +226,14 @@ exports.importVendors = async (req, res) => {
       const name = String(row.name || row["Company Name"] || "").trim();
       if (!name) { skipped++; continue; }
 
-      const slug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+      // prefer explicit slug from CSV, fallback to generated
+      const rawSlug = String(row.slug || row["Slug"] || "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+      const slug = rawSlug || name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
       if (!slug) { skipped++; continue; }
+
+      const mspRaw   = row["MSP Partner Program"] || row.mspPartnerProgram || "";
+      const mspStatus = parseMspStatus(mspRaw);
+      const multiTenRaw = row["Multi-Tenancy"] || row.multiTenancy || "";
 
       const doc = {
         name,
@@ -217,6 +257,20 @@ exports.importVendors = async (req, res) => {
         naicsCodes:  String(row.naicsCodes  || row["NAICS Codes"]         || "").trim(),
         keywords:    parseCSV(row.keywords    || row["Keywords"]     || ""),
         technologies:parseCSV(row.technologies|| row["Technologies"] || ""),
+        // MSP fields
+        pricingModel:           String(row.pricingModel          || "").trim(),
+        pricingNotes:           String(row.pricingNotes          || row["Pricing"]               || "").trim(),
+        bestFor:                String(row.bestFor               || row["Best For"]              || "").trim(),
+        mspPartnerProgram:      parseBool(mspRaw),
+        mspPartnerProgramStatus: mspStatus,
+        mspPartnerProgramNotes: String(row.mspPartnerProgramNotes|| row["Partner Program Notes"] || "").trim(),
+        multiTenancy:           parseYesNo(multiTenRaw),
+        keyFeatures:  parseCSV(row.keyFeatures  || row["Key Features"]     || ""),
+        pros:         parseCSV(row.pros         || row["Pros"]             || ""),
+        cons:         parseCSV(row.cons         || row["Cons"]             || ""),
+        integrations: parseCSV(row.integrations || row["Key Integrations"] || ""),
+        categories:   parseCSV(row.categories   || row["Categories"]       || ""),
+        groups:       parseCSV(row.groups       || row["Groups"]           || ""),
       };
 
       try {
