@@ -1,4 +1,5 @@
 const Vendor = require("../models/Vendor");
+const cloudinary = require("../config/cloudinary");
 
 function parseCSV(val) {
   if (Array.isArray(val)) return val.map((s) => String(s).trim()).filter(Boolean);
@@ -209,6 +210,24 @@ exports.deleteAllVendors = async (req, res) => {
   } catch (err) {
     console.error("deleteAllVendors error:", err);
     res.status(500).json({ ok: false, error: "Server error" });
+  }
+};
+
+// POST /api/v1/vendors/upload-logo  upload logo to cloudinary
+exports.uploadVendorLogo = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, error: "No file uploaded" });
+    const url = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        { folder: "msp-vendor-logos", resource_type: "image" },
+        (error, result) => { if (error) reject(error); else resolve(result.secure_url); }
+      );
+      stream.end(req.file.buffer);
+    });
+    res.json({ ok: true, url });
+  } catch (err) {
+    console.error("uploadVendorLogo error:", err);
+    res.status(500).json({ ok: false, error: "Upload failed" });
   }
 };
 
