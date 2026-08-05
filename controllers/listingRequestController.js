@@ -50,6 +50,7 @@ exports.submitListingRequest = async (req, res) => {
       foundedYear, companySize, mainOfficeAddress, requestedCity,
       contactEmail, personOfContact, jobTitle, fullName, note,
       agreedToPrivacy, certifications, verticalFocus, partners, services, heardFrom,
+      listingType, featuredAddon,
     } = req.body;
 
     if (!companyName?.trim()) {
@@ -102,6 +103,8 @@ exports.submitListingRequest = async (req, res) => {
       partners: toArray(partners),
       services: toArray(services),
       heardFrom: heardFrom?.trim() || "",
+      listingType: listingType === "fast" ? "fast" : "free",
+      featuredAddon: featuredAddon === true || featuredAddon === "true",
     });
 
     // Respond immediately emails fire in background
@@ -137,6 +140,16 @@ exports.submitListingRequest = async (req, res) => {
         <tr>
           <td style="background:#fff8e1;border-bottom:2px solid #f59e0b;padding:12px 32px;">
             <p style="margin:0;color:#92400e;font-size:13px;font-weight:600;">⏳ Pending Review Submitted on ${submittedAt} (ET)</p>
+          </td>
+        </tr>
+
+        <!-- Plan selection -->
+        <tr>
+          <td style="background:${listing.listingType === "fast" ? "#f0fdf4" : "#eff6ff"};border-bottom:2px solid ${listing.listingType === "fast" ? "#059669" : "#0356A6"};padding:12px 32px;">
+            <p style="margin:0;color:${listing.listingType === "fast" ? "#065f46" : "#1e3a8a"};font-size:13px;font-weight:700;">
+              ${listing.listingType === "fast" ? "🚀 Fast Approval ($100)" : "🆓 Free Listing ($0)"}
+              ${listing.featuredAddon ? " &nbsp;·&nbsp; ⭐ Featured Listing Add-on requested" : ""}
+            </p>
           </td>
         </tr>
 
@@ -216,106 +229,6 @@ exports.submitListingRequest = async (req, res) => {
 </body>
 </html>`,
       }).catch(err => console.error("Admin email error:", err.message));
-
-      // ── Confirmation to submitter ──
-      const contactName = listing.personOfContact || listing.fullName || "there";
-      transporter.sendMail({
-        from: `"MSP Companies Listings" <editor@mspcompanies.us>`,
-        to: listing.contactEmail,
-        subject: `Action Required: Your MSP Companies listing next steps`,
-        html: `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Listing Request Received  MSP Companies</title>
-</head>
-<body style="margin:0;padding:0;background-color:#ffffff;font-family:Arial,sans-serif;color:#333333;width:100% !important;">
-
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#ffffff;width:100%;margin:0 auto;border-collapse:collapse;">
-    <tr>
-      <td align="center" style="padding:40px 20px;">
-        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border:1px solid #eaeaea;border-radius:12px;overflow:hidden;background-color:#ffffff;">
-
-          <!-- Welcome / Success -->
-          <tr>
-            <td style="padding:40px 30px 20px;text-align:center;">
-              <h2 style="margin:0 0 10px;font-size:22px;color:#111827;">Request Received Successfully!</h2>
-              <p style="margin:0;font-size:16px;color:#4b5563;line-height:1.6;">
-                Hi <strong>${contactName}</strong>,<br/>
-                We have received your listing request for <strong>${listing.companyName}</strong>. Our team will review your submission within 1-2 business days.
-              </p>
-            </td>
-          </tr>
-
-          <!-- Plans Section -->
-          <tr>
-            <td style="padding:20px 30px;">
-              <h3 style="margin:0 0 15px;font-size:18px;color:#1f2937;text-align:center;">Our Listing Plans</h3>
-
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-                <tr>
-                  <!-- Free Plan -->
-                  <td width="48%" valign="top" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">
-                    <h4 style="margin:0 0 10px;font-size:16px;color:#111827;">Free Listing</h4>
-                    <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.6;">
-                      The free plan includes your standard company profile and a <strong>No-Follow link</strong> to your website. No additional features are included.
-                    </p>
-                  </td>
-                  <td width="4%"></td>
-                  <!-- Paid Plan -->
-                  <td width="48%" valign="top" style="background-color:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;">
-                    <h4 style="margin:0 0 10px;font-size:16px;color:#0356A6;">Premium Plan</h4>
-                    <p style="margin:0 0 10px;font-size:14px;color:#1e3a8a;line-height:1.6;">
-                      Upgrade to our paid plan to maximize your visibility. Premium features include:
-                    </p>
-                    <ul style="margin:0;padding:0 0 0 16px;font-size:14px;color:#1e3a8a;line-height:1.6;">
-                      <li style="margin-bottom:5px;"><strong>Do-Follow Link</strong> for SEO</li>
-                      <li style="margin-bottom:5px;"><strong>Sponsored Placement</strong></li>
-                      <li style="margin-bottom:5px;"><strong>Verified Badge</strong></li>
-                      <li><strong>Homepage Placement</strong></li>
-                    </ul>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Premium Benefits -->
-              <div style="background-color:#f8fafc;border-left:4px solid #0356A6;padding:15px 20px;margin-bottom:20px;">
-                <h4 style="margin:0 0 8px;font-size:15px;color:#0f172a;">Why Choose Premium?</h4>
-                <p style="margin:0;font-size:14px;color:#475569;line-height:1.6;">
-                  A Premium Listing dramatically increases your brand's trust and visibility. The <strong>Do-Follow link</strong> directly boosts your website's domain authority and Google search rankings. <strong>Sponsored and Homepage placement</strong> ensures you appear at the top of search results, driving more high-quality leads and potential clients directly to your business.
-                </p>
-              </div>
-
-              <p style="margin:0;font-size:15px;color:#4b5563;text-align:center;line-height:1.5;">
-                <strong>Interested in the Premium Plan?</strong><br/>
-                Simply reply to this email, and our team will get you set up immediately.
-              </p>
-            </td>
-          </tr>
-
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f9fafb;padding:30px 20px;text-align:center;border-top:1px solid #eaeaea;">
-              <p style="margin:0 0 10px;font-size:13px;color:#6b7280;">
-                If you have any questions, just reply to this email or reach us at <a href="mailto:editor@mspcompanies.us" style="color:#0356A6;text-decoration:none;">editor@mspcompanies.us</a>
-              </p>
-              <p style="margin:0;font-size:12px;color:#9ca3af;">
-                &copy; ${new Date().getFullYear()} MSP Companies. All rights reserved.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-
-</body>
-</html>`,
-      }).catch(err => console.error("Submitter email error:", err.message));
     } catch (emailErr) {
       console.error("Listing request email error:", emailErr.message);
     }

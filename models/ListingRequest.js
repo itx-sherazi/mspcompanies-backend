@@ -35,6 +35,10 @@ const listingRequestSchema = new mongoose.Schema(
     // Marketing
     heardFrom: { type: String, trim: true, default: "" },
 
+    // Listing plan selection
+    listingType: { type: String, enum: ["free", "fast"], default: "free" },
+    featuredAddon: { type: Boolean, default: false },
+
     // Status
     status: {
       type: String,
