@@ -24,7 +24,6 @@ const upload = multer({
   },
 });
 
-// Public
 router.get("/get", getBlogs);
 router.get("/getById/:slug", getBlogBySlug);
 router.get("/latest-posts", getLatestPosts);
