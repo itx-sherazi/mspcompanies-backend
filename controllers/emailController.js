@@ -1,4 +1,5 @@
 const { Resend } = require("resend");
+const DataRequest = require("../models/DataRequest");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -14,6 +15,20 @@ exports.leadPopup = async (req, res) => {
   }
 
   try {
+    // Save to Database
+    try {
+      await DataRequest.create({
+        fullName: email.split("@")[0],
+        email: email,
+        phone: "",
+        contactCount: 0,
+        price: 0,
+        message: `Lead Popup - Page: ${pagePath || "/"} | Title: ${pageTitle || "N/A"}${leadChannel ? ` | Channel: ${leadChannel}` : ""}${ctaLabel ? ` | CTA: ${ctaLabel}` : ""}${referenceDetail ? ` | Ref: ${referenceDetail}` : ""}`,
+      });
+    } catch (dbErr) {
+      console.error("Failed to save leadPopup lead to database:", dbErr);
+    }
+
     // Email to admin
     await resend.emails.send({
       from: FROM_EMAIL,
@@ -74,6 +89,20 @@ exports.contactForm = async (req, res) => {
   }
 
   try {
+    // Save to Database
+    try {
+      await DataRequest.create({
+        fullName: `${firstName} ${lastName || ""}`.trim(),
+        email,
+        phone: phone || "",
+        contactCount: 0,
+        price: 0,
+        message: `Contact Form - Subject: ${subject || "N/A"} | Service: ${service || "N/A"} | Message: ${message}`,
+      });
+    } catch (dbErr) {
+      console.error("Failed to save contactForm to DB:", dbErr);
+    }
+
     // Email to admin
     await resend.emails.send({
       from: FROM_EMAIL,
@@ -136,6 +165,20 @@ exports.bookACall = async (req, res) => {
   const fullName = `${firstName} ${lastName || ""}`.trim();
 
   try {
+    // Save to Database
+    try {
+      await DataRequest.create({
+        fullName,
+        email,
+        phone: phone || "",
+        contactCount: 0,
+        price: 0,
+        message: `Book a Call - Service: ${service || "Not specified"} | Message: ${message || "No message provided"}`,
+      });
+    } catch (dbErr) {
+      console.error("Failed to save bookACall to DB:", dbErr);
+    }
+
     // Email to admin
     await resend.emails.send({
       from: FROM_EMAIL,
@@ -204,6 +247,20 @@ exports.emailListForm = async (req, res) => {
   }
 
   try {
+    // Save to Database
+    try {
+      await DataRequest.create({
+        fullName: `${firstName} ${lastName || ""}`.trim(),
+        email,
+        phone: phone || "",
+        contactCount: 0,
+        price: 0,
+        message: `Email List Request - Subject: ${subject || "N/A"} | Service: ${service || "N/A"} | Message: ${message}`,
+      });
+    } catch (dbErr) {
+      console.error("Failed to save emailListForm to DB:", dbErr);
+    }
+
     // Email to admin
     await resend.emails.send({
       from: FROM_EMAIL,

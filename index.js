@@ -44,6 +44,7 @@ app.use("/api/v1", require("./router/userRoutes"));
 app.use("/api/v1", require("./router/cityRoutes"));
 app.use("/api/v1", require("./router/blogRoutes"));
 app.use("/api/v1", require("./router/emailRoutes"));
+app.use("/api/v1", require("./router/dataRequestRoutes"));
 app.use("/api/v1", require("./router/listingRequestRoutes"));
 app.use("/api/v1", require("./router/ServiceRoute"));
 app.use("/api/v1", require("./router/CompanyTeamRoute"));
