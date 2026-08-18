@@ -31,7 +31,7 @@ const hubCompanyImageUpload = multer({
 });
 
 router.get(
-  "/public/hubs/managed-service-providers/sitemap-entries",
+  "/public/hubs/:hubSlug/sitemap-entries",
   getManagedItHubSitemapEntries,
 );
 router.get("/public/hubs/:hubSlug/cities", getPublishedCitiesByHub);

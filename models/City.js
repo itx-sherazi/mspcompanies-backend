@@ -18,6 +18,9 @@ const hubCompanySchema = new mongoose.Schema(
     industryTags: { type: [String], default: [] },
     keywords: { type: [String], default: [] },
     employees: { type: String, default: "" },
+    revenueSize: { type: String, default: "" },
+    companyState: { type: String, default: "" },
+    companyCountry: { type: String, default: "" },
     foundedYear: { type: Number, default: null },
     phone: { type: String, default: "" },
     image: { type: String, default: "" },
@@ -40,7 +43,6 @@ const citySchema = new mongoose.Schema(
     slug: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       lowercase: true,
     },
@@ -66,6 +68,8 @@ const citySchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+citySchema.index({ hubSlug: 1, slug: 1 }, { unique: true });
 
 const City = mongoose.model("City", citySchema);
 module.exports = City;

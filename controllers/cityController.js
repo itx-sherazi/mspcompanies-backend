@@ -6,6 +6,15 @@ const cloudinary = require("../config/cloudinary.js");
 const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcategory.js");
 
 const HUB_MANAGED_IT = "managed-service-providers";
+const HUB_TOP_MSPS = "top-msps";
+const HUB_TOP_MSSP = "top-mssp";
+
+/** Public URL base for a given hub  used for revalidation paths. */
+function hubBasePath(hubSlug) {
+  if (hubSlug === HUB_TOP_MSPS) return "/top-msps";
+  if (hubSlug === HUB_TOP_MSSP) return "/top-mssp";
+  return "/msp";
+}
 
 async function revalidateFrontend(paths = ["/msp"]) {
   try {
@@ -102,6 +111,8 @@ function cleanedToHubDoc(cleaned, slug) {
   const fullAddress = [
     cleaned.companyStreet,
     cleaned.companyCity,
+    cleaned.companyState,
+    cleaned.companyCountry,
     cleaned.companyPostalCode,
   ]
     .filter(Boolean)
@@ -114,7 +125,10 @@ function cleanedToHubDoc(cleaned, slug) {
     address: cleaned.address || fullAddress || "",
     companyStreet: cleaned.companyStreet || "",
     companyCity: cleaned.companyCity || "",
+    companyState: cleaned.companyState || "",
+    companyCountry: cleaned.companyCountry || "",
     companyPostalCode: cleaned.companyPostalCode || "",
+    revenueSize: cleaned.revenueSize || "",
     companyServices: cleaned.companyServices || [],
     companyPartners: cleaned.companyPartners || [],
     industryTags: cleaned.industryTags || [],
@@ -140,11 +154,8 @@ function cleanedToHubDoc(cleaned, slug) {
 exports.getPublishedCitiesByHub = async (req, res) => {
   try {
     const { hubSlug } = req.params;
-    if (hubSlug !== HUB_MANAGED_IT) {
-      return res.status(404).json({ ok: false, data: [] });
-    }
     const cities = await City.find({
-      hubSlug: HUB_MANAGED_IT,
+      hubSlug,
       isPublished: true,
     })
       .sort({ name: 1 })
@@ -161,12 +172,9 @@ exports.getPublishedCitiesByHub = async (req, res) => {
 exports.getCityPublicByHub = async (req, res) => {
   try {
     const { hubSlug, citySlug } = req.params;
-    if (hubSlug !== HUB_MANAGED_IT) {
-      return res.status(404).json({ ok: false, message: "Not found" });
-    }
 
     const city = await City.findOne({
-      hubSlug: HUB_MANAGED_IT,
+      hubSlug,
       slug: String(citySlug).toLowerCase(),
       isPublished: true,
     }).lean();
@@ -175,7 +183,27 @@ exports.getCityPublicByHub = async (req, res) => {
       return res.status(404).json({ ok: false, message: "City not found" });
     }
 
-    const companies = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
+    const allCompanies = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
+
+    // Pagination is opt-in via ?page=&limit= (country hub pages use it; city hub
+    // pages omit it and keep receiving the full list, unchanged behavior).
+    const limitParam = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : null;
+
+    let companies = allCompanies;
+    let pagination = null;
+
+    if (limit) {
+      const sponsored = allCompanies.filter((c) => c && c.isSponsored === true);
+      const regular = allCompanies.filter((c) => !(c && c.isSponsored === true));
+      const totalPages = Math.max(1, Math.ceil(regular.length / limit));
+      const pageParam = parseInt(req.query.page, 10);
+      const page = Math.min(Math.max(1, Number.isFinite(pageParam) ? pageParam : 1), totalPages);
+      const start = (page - 1) * limit;
+
+      companies = [...sponsored, ...regular.slice(start, start + limit)];
+      pagination = { page, limit, totalPages, totalCompanies: regular.length };
+    }
 
     res.set("Cache-Control", "private, no-store");
     res.json({
@@ -189,6 +217,8 @@ exports.getCityPublicByHub = async (req, res) => {
         content: city.content || "",
         faqs: Array.isArray(city.faqs) ? city.faqs : [],
         companies,
+        companiesTotal: allCompanies.length,
+        ...(pagination ? { pagination } : {}),
       },
     });
   } catch (err) {
@@ -201,12 +231,9 @@ exports.getCityPublicByHub = async (req, res) => {
 exports.getCityCompanyPublicByHub = async (req, res) => {
   try {
     const { hubSlug, citySlug, companySlug } = req.params;
-    if (hubSlug !== HUB_MANAGED_IT) {
-      return res.status(404).json({ ok: false, message: "Not found" });
-    }
 
     const city = await City.findOne({
-      hubSlug: HUB_MANAGED_IT,
+      hubSlug,
       slug: String(citySlug).toLowerCase(),
       isPublished: true,
     })
@@ -252,8 +279,9 @@ exports.getCityCompanyPublicByHub = async (req, res) => {
  */
 exports.getManagedItHubSitemapEntries = async (req, res) => {
   try {
+    const hubSlug = req.params.hubSlug || HUB_MANAGED_IT;
     const cities = await City.find({
-      hubSlug: HUB_MANAGED_IT,
+      hubSlug,
       isPublished: true,
     })
       .sort({ name: 1 })
@@ -459,7 +487,7 @@ exports.createCity = async (req, res) => {
       hubCompanies: [],
     });
 
-    revalidateFrontend(["/msp", `/msp/${city.slug}`]);
+    revalidateFrontend([hubBasePath(city.hubSlug), `${hubBasePath(city.hubSlug)}/${city.slug}`]);
     res.status(201).json({ ok: true, data: city });
   } catch (err) {
     console.error("createCity:", err);
@@ -544,7 +572,7 @@ exports.updateCity = async (req, res) => {
     }
 
     await city.save();
-    revalidateFrontend(["/msp", `/msp/${city.slug}`]);
+    revalidateFrontend([hubBasePath(city.hubSlug), `${hubBasePath(city.hubSlug)}/${city.slug}`]);
     res.json({ ok: true, data: city });
   } catch (err) {
     console.error("updateCity:", err);
@@ -580,7 +608,10 @@ exports.updateHubCompany = async (req, res) => {
       "Company Address": body.address,
       "Company Street": body.companyStreet,
       "Company City": body.companyCity,
-      "Company Postal Code": body.companyPostalCode,
+      "Company State": body.companyState,
+      "Country": body.companyCountry,
+      "ZIP Code": body.companyPostalCode,
+      "Revenue Size": body.revenueSize,
       "Company Services": body.companyServices,
       "Company Partners": body.companyPartners,
       Industry: body.industryTags,
@@ -642,7 +673,10 @@ exports.updateHubCompany = async (req, res) => {
       address: cleaned.address,
       companyStreet: cleaned.companyStreet,
       companyCity: cleaned.companyCity,
+      companyState: cleaned.companyState,
+      companyCountry: cleaned.companyCountry,
       companyPostalCode: cleaned.companyPostalCode,
+      revenueSize: cleaned.revenueSize,
       companyServices: cleaned.companyServices,
       companyPartners: cleaned.companyPartners,
       industryTags: cleaned.industryTags,
@@ -751,6 +785,11 @@ exports.uploadCityCompaniesExcel = async (req, res) => {
       req.body.citySlug?.trim() ||
       req.params.citySlug ||
       req.query.citySlug?.trim();
+    const hubSlug =
+      req.body.hubSlug?.trim() ||
+      req.params.hubSlug ||
+      req.query.hubSlug?.trim() ||
+      HUB_MANAGED_IT;
     const fileBuffer = req.files?.file?.[0]?.buffer;
 
     if (!citySlug || !fileBuffer) {
@@ -761,7 +800,7 @@ exports.uploadCityCompaniesExcel = async (req, res) => {
     }
 
     const city = await City.findOne({
-      hubSlug: HUB_MANAGED_IT,
+      hubSlug,
       slug: String(citySlug).toLowerCase(),
     });
     if (!city) {
@@ -809,7 +848,11 @@ exports.uploadCityCompaniesExcel = async (req, res) => {
       });
     }
 
-    if (companiesSheet.length > 50) {
+    // City hub pages stay capped at 50 rows per upload; country hub pages
+    // (hubSlug "top-msps" / "top-mssp") allow unlimited rows since a country
+    // can have far more companies than a single city.
+    const isCountryHub = hubSlug === HUB_TOP_MSPS || hubSlug === HUB_TOP_MSSP;
+    if (!isCountryHub && companiesSheet.length > 50) {
       return res.status(400).json({
         ok: false,
         message: "Maximum 50 companies per upload. Split into multiple files.",
