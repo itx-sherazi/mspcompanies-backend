@@ -1,6 +1,10 @@
 const ListingRequest = require("../models/ListingRequest");
 const cloudinary = require("../config/cloudinary");
 const nodemailer = require("nodemailer");
+const {
+  findPublishedMspCity,
+  appendListingCompanyToCity,
+} = require("./cityController");
 
 function toArray(val) {
   if (!val) return [];
@@ -47,7 +51,7 @@ exports.submitListingRequest = async (req, res) => {
   try {
     const {
       companyName, companyDescription, website, linkedinUrl, phone,
-      foundedYear, companySize, mainOfficeAddress, requestedCity,
+      foundedYear, companySize, mainOfficeAddress, requestedCity, requestedCitySlug,
       contactEmail, personOfContact, jobTitle, fullName, note,
       agreedToPrivacy, certifications, verticalFocus, partners, services, heardFrom,
       listingType, featuredAddon,
@@ -58,6 +62,10 @@ exports.submitListingRequest = async (req, res) => {
     }
     if (!contactEmail?.trim()) {
       return res.status(400).json({ ok: false, message: "Contact email is required" });
+    }
+    const city = await findPublishedMspCity(requestedCitySlug, requestedCity);
+    if (!city) {
+      return res.status(400).json({ ok: false, message: "Please select a valid city from the list" });
     }
     const agreed = agreedToPrivacy === true || agreedToPrivacy === "true";
     if (!agreed) {
@@ -90,7 +98,8 @@ exports.submitListingRequest = async (req, res) => {
       foundedYear: foundedYear?.trim() || "",
       companySize: companySize?.trim() || "",
       mainOfficeAddress: mainOfficeAddress?.trim() || "",
-      requestedCity: requestedCity?.trim() || "",
+      requestedCity: city.name,
+      requestedCitySlug: city.slug,
       logoUrl,
       contactEmail: contactEmail.trim().toLowerCase(),
       personOfContact: personOfContact?.trim() || "",
@@ -266,13 +275,63 @@ exports.updateListingStatus = async (req, res) => {
     if (!["pending", "approved", "rejected"].includes(status)) {
       return res.status(400).json({ ok: false, message: "Invalid status" });
     }
-    const listing = await ListingRequest.findByIdAndUpdate(
-      id,
-      { status, adminNote: adminNote?.trim() || "" },
-      { new: true }
-    );
+
+    const listing = await ListingRequest.findById(id);
     if (!listing) return res.status(404).json({ ok: false, message: "Not found" });
-    res.json({ ok: true, data: listing });
+
+    const note = adminNote?.trim() || listing.adminNote || "";
+
+    if (status !== "approved") {
+      listing.status = status;
+      listing.adminNote = note;
+      await listing.save();
+      return res.json({ ok: true, data: listing });
+    }
+
+    const city = await findPublishedMspCity(listing.requestedCitySlug, listing.requestedCity);
+    if (!city) {
+      return res.status(400).json({ ok: false, message: "No city found" });
+    }
+
+    if (listing.status === "approved" && listing.publishedCompanySlug) {
+      return res.json({
+        ok: true,
+        data: listing,
+        published: {
+          cityName: city.name,
+          citySlug: city.slug,
+          companySlug: listing.publishedCompanySlug,
+        },
+      });
+    }
+
+    try {
+      const published = await appendListingCompanyToCity(city, listing);
+      listing.status = "approved";
+      listing.adminNote = note;
+      listing.requestedCity = city.name;
+      listing.requestedCitySlug = city.slug;
+      listing.publishedCitySlug = city.slug;
+      listing.publishedCompanySlug = published.slug;
+      await listing.save();
+      return res.json({
+        ok: true,
+        data: listing,
+        published: {
+          cityName: city.name,
+          citySlug: city.slug,
+          companySlug: published.slug,
+        },
+      });
+    } catch (pubErr) {
+      if (pubErr.code === "DUPLICATE") {
+        return res.status(409).json({
+          ok: false,
+          message: "Company already listed in this city",
+        });
+      }
+      throw pubErr;
+    }
   } catch (err) {
     console.error("updateListingStatus:", err);
     res.status(500).json({ ok: false, message: "Server error" });

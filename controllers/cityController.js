@@ -937,3 +937,110 @@ exports.searchCompanies = async (req, res) => {
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
+
+function slugifyCityKey(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
+
+/** Find a published /msp city hub by slug or display name. */
+exports.findPublishedMspCity = async (slugOrName, fallbackName) => {
+  const slug = slugifyCityKey(slugOrName);
+  const name = String(fallbackName || slugOrName || "").trim();
+
+  if (slug) {
+    const bySlug = await City.findOne({
+      hubSlug: HUB_MANAGED_IT,
+      isPublished: true,
+      slug,
+    });
+    if (bySlug) return bySlug;
+  }
+
+  if (name) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const byName = await City.findOne({
+      hubSlug: HUB_MANAGED_IT,
+      isPublished: true,
+      name: new RegExp(`^${escaped}$`, "i"),
+    });
+    if (byName) return byName;
+  }
+
+  return null;
+};
+
+/**
+ * Append a Get Listed request onto a city hub. Throws err.code = "DUPLICATE"
+ * if the same company name already exists on that city.
+ */
+exports.appendListingCompanyToCity = async (city, listing) => {
+  const list = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
+  const nameKey = String(listing.companyName || "").trim().toLowerCase();
+  const existing = list.find(
+    (c) => String(c.companyName || "").trim().toLowerCase() === nameKey,
+  );
+  if (existing) {
+    const err = new Error("Company already listed in this city");
+    err.code = "DUPLICATE";
+    err.existing = existing;
+    throw err;
+  }
+
+  const usedSlugs = new Set(
+    list.map((c) => String(c.slug || "").toLowerCase()).filter(Boolean),
+  );
+  const slug = uniqueSlugForBatch(listing.companyName, usedSlugs);
+  if (!slug) {
+    const err = new Error("Could not create a company URL slug");
+    err.code = "BAD_SLUG";
+    throw err;
+  }
+
+  const founded = listing.foundedYear ? parseInt(listing.foundedYear, 10) : NaN;
+  const doc = {
+    slug,
+    companyName: listing.companyName,
+    description: listing.companyDescription || "",
+    address: listing.mainOfficeAddress || "",
+    companyStreet: "",
+    companyCity: city.name,
+    companyState: "",
+    companyCountry: "US",
+    companyPostalCode: "",
+    revenueSize: "",
+    companyServices: Array.isArray(listing.services) ? listing.services : [],
+    companyPartners: Array.isArray(listing.partners) ? listing.partners : [],
+    industryTags: listing.verticalFocus ? [listing.verticalFocus] : [],
+    keywords: Array.isArray(listing.certifications) ? listing.certifications : [],
+    employees: listing.companySize || "",
+    foundedYear: Number.isFinite(founded) ? founded : null,
+    phone: listing.phone || "",
+    image: listing.logoUrl || "",
+    website: listing.website || "",
+    linkedinUrl: listing.linkedinUrl || "",
+    facebookUrl: "",
+    twitterUrl: "",
+    naicsCodes: [],
+    sicCodes: [],
+    technologies: [],
+    vars: "",
+    isSponsored: listing.featuredAddon === true,
+  };
+
+  city.hubCompanies = list;
+  city.hubCompanies.push(doc);
+  city.markModified("hubCompanies");
+  await city.save();
+
+  await revalidateFrontend([
+    "/msp",
+    `/msp/${city.slug}`,
+    `/msp/${city.slug}/${slug}`,
+  ]);
+
+  return { slug, company: doc };
+};
