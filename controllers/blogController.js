@@ -1,7 +1,6 @@
 const Blog = require("../models/Blog");
 const cloudinary = require("../config/cloudinary");
 
-// Upload buffer to Cloudinary and return secure URL
 async function uploadToCloudinary(buffer, mimetype) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
