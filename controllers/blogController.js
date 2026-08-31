@@ -14,7 +14,6 @@ async function uploadToCloudinary(buffer, mimetype) {
   });
 }
 
-// POST /api/v1/creat
 exports.createBlog = async (req, res) => {
   try {
     const { title, slug, body, category, tags, author, metaTitle, metaDescription, faqs, published } = req.body;
