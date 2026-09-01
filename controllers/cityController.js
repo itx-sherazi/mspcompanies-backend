@@ -280,20 +280,25 @@ exports.getCityCompanyPublicByHub = async (req, res) => {
 exports.getManagedItHubSitemapEntries = async (req, res) => {
   try {
     const hubSlug = req.params.hubSlug || HUB_MANAGED_IT;
+    const lite = req.query.lite === "1" || req.query.lite === "true";
     const cities = await City.find({
       hubSlug,
       isPublished: true,
     })
       .sort({ name: 1 })
-      .select("slug updatedAt hubCompanies")
+      .select(lite ? "slug updatedAt" : "slug updatedAt hubCompanies.slug")
       .lean();
 
     const data = cities.map((c) => ({
       slug: c.slug,
       lastmod: c.updatedAt ? new Date(c.updatedAt).toISOString() : null,
-      companySlugs: (c.hubCompanies || [])
-        .map((co) => (co && co.slug ? String(co.slug).trim() : ""))
-        .filter(Boolean),
+      ...(lite
+        ? {}
+        : {
+            companySlugs: (c.hubCompanies || [])
+              .map((co) => (co && co.slug ? String(co.slug).trim() : ""))
+              .filter(Boolean),
+          }),
     }));
 
     res.set("Cache-Control", "public, max-age=300, s-maxage=1800");

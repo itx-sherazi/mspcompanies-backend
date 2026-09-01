@@ -1,43 +1,43 @@
-name: Deploy Backend
+  name: Deploy Backend
 
-on:
-  push:
-    branches:
-      - main
+  on:
+    push:
+      branches:
+        - main
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+  jobs:
+    deploy:
+      runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      steps:
+        - name: Checkout code
+          uses: actions/checkout@v4
 
-      - name: Deploy to server via SSH
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          command_timeout: 20m
-          script: |
-            set -e
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        - name: Deploy to server via SSH
+          uses: appleboy/ssh-action@v1.2.5
+          with:
+            host: ${{ secrets.SSH_HOST }}
+            username: ${{ secrets.SSH_USERNAME }}
+            key: ${{ secrets.SSH_KEY }}
+            port: ${{ secrets.SSH_PORT }}
+            command_timeout: 20m
+            script: |
+              set -e
+              export NVM_DIR="$HOME/.nvm"
+              [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-            cd ~/htdocs/api.mspcompanies.us
+              cd ~/htdocs/api.mspcompanies.us
 
-            echo "Pulling latest code..."
-            git pull origin main
+              echo "Pulling latest code..."
+              git pull origin main
 
-            echo "Installing dependencies..."
-            npm install
+              echo "Installing dependencies..."
+              npm install
 
-            echo "Restarting PM2..."
-            pm2 restart mspcompanies-api --update-env
+              echo "Restarting PM2..."
+              pm2 restart mspcompanies-api --update-env
 
-            echo "Saving PM2 process list..."
-            pm2 save
+              echo "Saving PM2 process list..."
+              pm2 save
 
-            echo "Backend deployed successfully!"
+              echo "Backend deployed successfully!"

@@ -43,10 +43,13 @@ async function revalidateFrontend(paths = []) {
   } catch (_) {}
 }
 
-// GET /api/v1/vendors?category=rmm-software&limit=10
+const VENDOR_LIST_FIELDS =
+  "slug name description logoUrl hq website groups categories pageCount mspPartnerProgram pricingModel companySize founded";
+
+// GET /api/v1/vendors?category=rmm-software&limit=10&fields=list
 exports.getVendors = async (req, res) => {
   try {
-    const { category, group, search, limit = 50, page = 1 } = req.query;
+    const { category, group, search, limit = 50, page = 1, fields } = req.query;
     const filter = {};
     if (category) filter.categories = category;
     if (group) filter.groups = group;
@@ -57,16 +60,25 @@ exports.getVendors = async (req, res) => {
     ];
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    const listMode = String(fields || "").toLowerCase() === "list";
     const [vendors, total] = await Promise.all([
       Vendor.find(filter)
         .sort({ pageCount: -1, name: 1 })
         .skip(skip)
         .limit(parseInt(limit))
-        .select("-__v"),
+        .select(listMode ? VENDOR_LIST_FIELDS : "-__v")
+        .lean(),
       Vendor.countDocuments(filter),
     ]);
 
-    res.json({ ok: true, data: vendors, total, page: parseInt(page), limit: parseInt(limit) });
+    const data = listMode
+      ? vendors.map((v) => ({
+          ...v,
+          description: String(v.description || "").slice(0, 320),
+        }))
+      : vendors;
+
+    res.json({ ok: true, data, total, page: parseInt(page), limit: parseInt(limit) });
   } catch (err) {
     console.error("getVendors error:", err);
     res.status(500).json({ ok: false, error: "Server error" });
