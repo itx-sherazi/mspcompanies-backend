@@ -1,5 +1,5 @@
 const { Resend } = require("resend");
-const DataRequest = require("../models/DataRequest");
+  const DataRequest = require("../models/DataRequest");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
