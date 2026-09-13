@@ -35,6 +35,7 @@ managedItCompanySchema.index({ companyName: "text", description: "text", keyword
 managedItCompanySchema.index({ isPublished: 1, companyName: 1 });
 managedItCompanySchema.index({ isPublished: 1, companyState: 1 });
 managedItCompanySchema.index({ isPublished: 1, companyCity: 1 });
+managedItCompanySchema.index({ isPublished: 1, companyCountry: 1 });
 managedItCompanySchema.index({ isPublished: 1, industry: 1 });
 
 const ManagedItCompany = mongoose.model("ManagedItCompany", managedItCompanySchema);

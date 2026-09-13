@@ -17,6 +17,7 @@ const {
   uploadCityCompaniesExcel,
   toggleSponsoredHubCompany,
   searchCompanies,
+  wipeListingCompanies,
 } = require("../controllers/cityController.js");
 
 const router = express.Router();
@@ -73,6 +74,11 @@ router.post(
   adminAuthMiddleware,
   csvUpload.fields([{ name: "file", maxCount: 1 }]),
   uploadCityCompaniesExcel,
+);
+router.post(
+  "/admin/wipe-listing-companies",
+  adminAuthMiddleware,
+  wipeListingCompanies,
 );
 
 module.exports = router;

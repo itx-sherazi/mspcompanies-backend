@@ -4,6 +4,7 @@ const router = express.Router();
 const { adminAuthMiddleware: adminAuth } = require("../middleware/adminAuthMiddleware");
 const {
   submitListingRequest,
+  checkCompanyName,
   getAllListingRequests,
   updateListingStatus,
   deleteListingRequest,
@@ -19,6 +20,7 @@ const upload = multer({
 });
 
 // Public
+router.get("/listing-request/check", checkCompanyName);
 router.post("/listing-request", upload.single("logo"), submitListingRequest);
 
 // Admin
