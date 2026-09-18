@@ -5,61 +5,6 @@ const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
 const cloudinary = require("../config/cloudinary.js");
 const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcategory.js");
-const {
-  companyBelongsToCity,
-  companyBelongsToCountry,
-  mitCityFilter,
-  mitCountryFilter,
-  mapMitToHubCompany,
-  resolveCityState,
-} = require("../utils/cityMatch.js");
-
-const MIT_CITY_LIST_CAP = 200;
-const MIT_COUNTRY_UNPAGED_CAP = 200;
-
-async function resolveMspCityCompanies(city) {
-  const raw = await ManagedItCompany.find(mitCityFilter(city))
-    .sort({ companyName: 1 })
-    .limit(MIT_CITY_LIST_CAP + 50)
-    .lean();
-  const matched = raw.filter((c) => companyBelongsToCity(c, city)).slice(0, MIT_CITY_LIST_CAP);
-  return { companies: matched.map(mapMitToHubCompany), source: "mit" };
-}
-
-async function resolveMspCountryPage(country, { page, limit } = {}) {
-  const filter = mitCountryFilter(country);
-  const total = await ManagedItCompany.countDocuments(filter);
-
-  if (!limit) {
-    const raw = await ManagedItCompany.find(filter)
-      .sort({ companyName: 1 })
-      .limit(MIT_COUNTRY_UNPAGED_CAP)
-      .lean();
-    const companies = raw
-      .filter((c) => companyBelongsToCountry(c, country))
-      .map(mapMitToHubCompany);
-    return { companies, companiesTotal: total, pagination: null, source: "mit" };
-  }
-
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const safePage = Math.min(Math.max(1, page || 1), totalPages);
-  const skip = (safePage - 1) * limit;
-  const raw = await ManagedItCompany.find(filter)
-    .sort({ companyName: 1 })
-    .skip(skip)
-    .limit(limit)
-    .lean();
-  const companies = raw
-    .filter((c) => companyBelongsToCountry(c, country))
-    .map(mapMitToHubCompany);
-
-  return {
-    companies,
-    companiesTotal: total,
-    pagination: { page: safePage, limit, totalPages, totalCompanies: total },
-    source: "mit",
-  };
-}
 
 const HUB_MANAGED_IT = "managed-service-providers";
 const HUB_TOP_MSPS = "top-msps";
@@ -223,7 +168,7 @@ exports.getPublishedCitiesByHub = async (req, res) => {
       data: cities.map((c) => ({
         name: c.name,
         slug: c.slug,
-        state: resolveCityState(c),
+        state: c.state || "",
       })),
     });
   } catch (err) {
@@ -246,53 +191,26 @@ exports.getCityPublicByHub = async (req, res) => {
       return res.status(404).json({ ok: false, message: "City not found" });
     }
 
+    const allCompanies = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
+
+    // Pagination is opt-in via ?page=&limit= (country hub pages use it; city hub
+    // pages omit it and keep receiving the full list, unchanged behavior).
     const limitParam = parseInt(req.query.limit, 10);
     const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : null;
-    const pageParam = parseInt(req.query.page, 10);
-    const requestedPage = Number.isFinite(pageParam) ? pageParam : 1;
 
-    let companies = [];
-    let companiesTotal = 0;
+    let companies = allCompanies;
     let pagination = null;
-    let companiesSource = "hub";
 
-    if (hubSlug === HUB_MANAGED_IT) {
-      const resolved = await resolveMspCityCompanies(city);
-      const allCompanies = resolved.companies;
-      companiesSource = resolved.source;
-      companiesTotal = allCompanies.length;
-      if (limit) {
-        const sponsored = allCompanies.filter((c) => c && c.isSponsored === true);
-        const regular = allCompanies.filter((c) => !(c && c.isSponsored === true));
-        const totalPages = Math.max(1, Math.ceil(regular.length / limit));
-        const page = Math.min(Math.max(1, requestedPage), totalPages);
-        const start = (page - 1) * limit;
-        companies = [...sponsored, ...regular.slice(start, start + limit)];
-        pagination = { page, limit, totalPages, totalCompanies: regular.length };
-      } else {
-        companies = allCompanies;
-      }
-    } else if (hubSlug === HUB_TOP_MSPS) {
-      const resolved = await resolveMspCountryPage(city, { page: requestedPage, limit });
-      companies = resolved.companies;
-      companiesTotal = resolved.companiesTotal;
-      pagination = resolved.pagination;
-      companiesSource = resolved.source;
-    } else {
-      const allCompanies = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
-      companiesSource = "hub";
-      companiesTotal = allCompanies.length;
-      if (limit) {
-        const sponsored = allCompanies.filter((c) => c && c.isSponsored === true);
-        const regular = allCompanies.filter((c) => !(c && c.isSponsored === true));
-        const totalPages = Math.max(1, Math.ceil(regular.length / limit));
-        const page = Math.min(Math.max(1, requestedPage), totalPages);
-        const start = (page - 1) * limit;
-        companies = [...sponsored, ...regular.slice(start, start + limit)];
-        pagination = { page, limit, totalPages, totalCompanies: regular.length };
-      } else {
-        companies = allCompanies;
-      }
+    if (limit) {
+      const sponsored = allCompanies.filter((c) => c && c.isSponsored === true);
+      const regular = allCompanies.filter((c) => !(c && c.isSponsored === true));
+      const totalPages = Math.max(1, Math.ceil(regular.length / limit));
+      const pageParam = parseInt(req.query.page, 10);
+      const page = Math.min(Math.max(1, Number.isFinite(pageParam) ? pageParam : 1), totalPages);
+      const start = (page - 1) * limit;
+
+      companies = [...sponsored, ...regular.slice(start, start + limit)];
+      pagination = { page, limit, totalPages, totalCompanies: regular.length };
     }
 
     res.set("Cache-Control", "private, no-store");
@@ -301,15 +219,15 @@ exports.getCityPublicByHub = async (req, res) => {
       data: {
         name: city.name,
         slug: city.slug,
-        state: resolveCityState(city),
+        state: city.state || "",
         heading: city.heading || "",
         metaTitle: city.metaTitle,
         metaDescription: city.metaDescription,
         content: city.content || "",
         faqs: Array.isArray(city.faqs) ? city.faqs : [],
         companies,
-        companiesTotal,
-        companiesSource,
+        companiesTotal: allCompanies.length,
+        companiesSource: "hub",
         ...(pagination ? { pagination } : {}),
       },
     });
@@ -329,7 +247,7 @@ exports.getCityCompanyPublicByHub = async (req, res) => {
       slug: String(citySlug).toLowerCase(),
       isPublished: true,
     })
-      .select("name slug heading metaTitle metaDescription hubCompanies")
+      .select("name slug state heading metaTitle metaDescription hubCompanies")
       .lean();
 
     if (!city) {
@@ -337,29 +255,9 @@ exports.getCityCompanyPublicByHub = async (req, res) => {
     }
 
     const wanted = String(companySlug).toLowerCase();
-    let company = null;
-
-    if (hubSlug === HUB_MANAGED_IT) {
-      const mit = await ManagedItCompany.findOne({
-        slug: wanted,
-        isPublished: { $ne: false },
-      }).lean();
-      if (mit && companyBelongsToCity(mit, city)) {
-        company = mapMitToHubCompany(mit);
-      }
-    } else if (hubSlug === HUB_TOP_MSPS) {
-      const mit = await ManagedItCompany.findOne({
-        slug: wanted,
-        isPublished: { $ne: false },
-      }).lean();
-      if (mit && companyBelongsToCountry(mit, city)) {
-        company = mapMitToHubCompany(mit);
-      }
-    } else {
-      company = (city.hubCompanies || []).find(
-        (c) => c.slug && String(c.slug).toLowerCase() === wanted,
-      );
-    }
+    const company = (city.hubCompanies || []).find(
+      (c) => c.slug && String(c.slug).toLowerCase() === wanted,
+    );
 
     if (!company) {
       return res.status(404).json({ ok: false, message: "Company not found" });
@@ -372,7 +270,7 @@ exports.getCityCompanyPublicByHub = async (req, res) => {
         city: {
           name: city.name,
           slug: city.slug,
-          state: resolveCityState(city),
+          state: city.state || "",
           heading: city.heading || "",
           metaTitle: city.metaTitle,
           metaDescription: city.metaDescription,
@@ -431,23 +329,9 @@ exports.listCitiesAdmin = async (req, res) => {
       .sort({ updatedAt: -1 })
       .lean();
 
-    let counts = [];
-    if (hubSlug === HUB_MANAGED_IT) {
-      counts = await Promise.all(
-        cities.map((c) => ManagedItCompany.countDocuments(mitCityFilter(c))),
-      );
-    } else if (hubSlug === HUB_TOP_MSPS) {
-      counts = await Promise.all(
-        cities.map((c) => ManagedItCompany.countDocuments(mitCountryFilter(c))),
-      );
-    } else {
-      counts = cities.map((c) => (Array.isArray(c.hubCompanies) ? c.hubCompanies.length : 0));
-    }
-
-    const data = cities.map((c, i) => ({
+    const data = cities.map((c) => ({
       ...c,
-      state: resolveCityState(c),
-      companyCount: counts[i] || 0,
+      companyCount: Array.isArray(c.hubCompanies) ? c.hubCompanies.length : 0,
     }));
 
     res.json({ ok: true, data });
@@ -1042,33 +926,30 @@ exports.searchCompanies = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 8, 20);
     if (!q) return res.json({ ok: true, data: [] });
 
-    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-    const [cities, mitRows] = await Promise.all([
-      City.find({ hubSlug: HUB_MANAGED_IT, isPublished: true }).select("slug name").lean(),
-      ManagedItCompany.find({
-        isPublished: { $ne: false },
-        companyName: regex,
-      })
-        .sort({ companyName: 1 })
-        .limit(Math.max(limit * 8, 40))
-        .lean(),
-    ]);
+    const cities = await City.find({ hubSlug: HUB_MANAGED_IT, isPublished: true })
+      .select("slug name hubCompanies")
+      .lean();
 
+    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     const matches = [];
-    for (const company of mitRows) {
+
+    for (const city of cities) {
       if (matches.length >= limit) break;
-      const city = cities.find((c) => companyBelongsToCity(company, c));
-      if (!city) continue;
-      matches.push({
-        companyName: company.companyName,
-        slug: company.slug,
-        citySlug: city.slug,
-        cityName: city.name,
-        image: company.image || "",
-        website: company.website || "",
-        companyCity: company.companyCity || "",
-        companyState: company.companyState || "",
-      });
+      for (const company of city.hubCompanies || []) {
+        if (matches.length >= limit) break;
+        if (company.companyName && regex.test(company.companyName)) {
+          matches.push({
+            companyName: company.companyName,
+            slug: company.slug,
+            citySlug: city.slug,
+            cityName: city.name,
+            image: company.image || "",
+            website: company.website || "",
+            companyCity: company.companyCity || "",
+            companyState: company.companyState || "",
+          });
+        }
+      }
     }
 
     res.json({ ok: true, data: matches });
@@ -1141,23 +1022,25 @@ exports.findPublishedMspCountry = async (slugOrName, fallbackName) => {
 };
 
 /**
- * Append a Get Listed approval into MIT (same store as the master sheet).
- * City page matches Company City; country page matches Company Country.
- * Throws err.code = "DUPLICATE" if that company name already exists.
+ * Append a Get Listed approval into that city's hubCompanies (separate from MIT sheet).
+ * Throws err.code = "DUPLICATE" if that company name already exists on this city.
  */
 exports.appendListingCompanyToCity = async (city, listing) => {
-  const { nameKey } = require("./managedItController.js");
-  const key = nameKey(listing.companyName);
-  const existingDocs = await ManagedItCompany.find({}, "companyName slug").lean();
-  const existing = existingDocs.find((c) => nameKey(c.companyName) === key);
+  const list = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
+  const nameKey = String(listing.companyName || "").trim().toLowerCase();
+  const existing = list.find(
+    (c) => String(c.companyName || "").trim().toLowerCase() === nameKey,
+  );
   if (existing) {
-    const err = new Error("Company already listed");
+    const err = new Error("Company already listed in this city");
     err.code = "DUPLICATE";
     err.existing = existing;
     throw err;
   }
 
-  const usedSlugs = new Set(existingDocs.map((c) => String(c.slug || "").toLowerCase()).filter(Boolean));
+  const usedSlugs = new Set(
+    list.map((c) => String(c.slug || "").toLowerCase()).filter(Boolean),
+  );
   const slug = uniqueSlugForBatch(listing.companyName, usedSlugs);
   if (!slug) {
     const err = new Error("Could not create a company URL slug");
@@ -1169,43 +1052,42 @@ exports.appendListingCompanyToCity = async (city, listing) => {
   const doc = {
     slug,
     companyName: listing.companyName,
-    employees: listing.companySize || "",
-    industry: listing.verticalFocus || "",
-    website: listing.website || "",
+    description: listing.companyDescription || "",
+    address: listing.mainOfficeAddress || "",
+    companyStreet: "",
+    companyCity: city.name,
+    companyState: city.state || "",
+    companyCountry: String(listing.requestedCountry || "").trim() || "US",
+    companyPostalCode: "",
+    revenueSize: "",
     companyServices: Array.isArray(listing.services) ? listing.services : [],
     companyPartners: Array.isArray(listing.partners) ? listing.partners : [],
+    industryTags: listing.verticalFocus ? [listing.verticalFocus] : [],
+    keywords: Array.isArray(listing.certifications) ? listing.certifications : [],
+    employees: listing.companySize || "",
+    foundedYear: Number.isFinite(founded) ? founded : null,
+    phone: listing.phone || "",
+    image: listing.logoUrl || "",
+    website: listing.website || "",
     linkedinUrl: listing.linkedinUrl || "",
     facebookUrl: "",
     twitterUrl: "",
-    companyStreet: "",
-    companyCity: city.name,
-    companyState: resolveCityState(city),
-    companyCountry: String(listing.requestedCountry || "").trim(),
-    companyPostalCode: "",
-    address: listing.mainOfficeAddress || "",
-    keywords: Array.isArray(listing.certifications) ? listing.certifications : [],
-    phone: listing.phone || "",
-    technologies: [],
-    sicCodes: [],
     naicsCodes: [],
-    description: listing.companyDescription || "",
-    foundedYear: Number.isFinite(founded) ? founded : null,
-    image: listing.logoUrl || "",
-    isPublished: true,
+    sicCodes: [],
+    technologies: [],
+    vars: "",
+    isSponsored: listing.featuredAddon === true,
   };
 
-  await ManagedItCompany.create(doc);
+  city.hubCompanies = list;
+  city.hubCompanies.push(doc);
+  city.markModified("hubCompanies");
+  await city.save();
 
-  const countrySlug = String(listing.requestedCountrySlug || "").trim().toLowerCase();
   await revalidateFrontend([
-    "/managed-it-services",
     "/msp",
     `/msp/${city.slug}`,
     `/msp/${city.slug}/${slug}`,
-    "/top-msps",
-    ...(countrySlug
-      ? [`/top-msps/${countrySlug}`, `/top-msps/${countrySlug}/${slug}`]
-      : []),
   ]);
 
   return { slug, company: doc };

@@ -1,4 +1,4 @@
-/** Strong match: Company City ↔ hub name/slug, and Company State ↔ hub state when known. */
+/** Hub URL slug decides the MIT field: city slug → companyCity, state slug → companyState. */
 
 function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -67,37 +67,112 @@ const US_STATE_ALIASES = {
   wyoming: ["wy"],
 };
 
-/** Known /msp hubs so matching works before admin fills State. */
+/** CMS typos that still need to resolve to a real state slug. */
+const HUB_SLUG_FIXES = {
+  lowa: "iowa",
+};
+
+/** Extra city-name spellings that appear in the MIT sheet. */
+const CITY_NAME_ALIASES = {
+  "washington-dc": ["washington", "washington dc", "washington d.c.", "dc", "d.c.", "district of columbia"],
+  "new-york": ["nyc", "new york city"],
+  "new-orleans": ["new orleans"],
+};
+
+/** Known /msp city hubs so matching works before admin fills State. */
 const CITY_STATE_FALLBACK = {
   atlanta: "Georgia",
   austin: "Texas",
+  baltimore: "Maryland",
   boston: "Massachusetts",
   charlotte: "North Carolina",
   chicago: "Illinois",
+  cincinnati: "Ohio",
+  cleveland: "Ohio",
+  columbus: "Ohio",
   dallas: "Texas",
   denver: "Colorado",
+  detroit: "Michigan",
+  fresno: "California",
   houston: "Texas",
+  indianapolis: "Indiana",
+  jacksonville: "Florida",
+  "las-vegas": "Nevada",
   "los-angeles": "California",
+  memphis: "Tennessee",
   miami: "Florida",
   minneapolis: "Minnesota",
   nashville: "Tennessee",
+  "new-orleans": "Louisiana",
   "new-york": "New York",
+  "oklahoma-city": "Oklahoma",
+  omaha: "Nebraska",
+  "orange-county": "California",
   orlando: "Florida",
   philadelphia: "Pennsylvania",
   phoenix: "Arizona",
+  pittsburgh: "Pennsylvania",
   portland: "Oregon",
+  raleigh: "North Carolina",
+  richmond: "Virginia",
+  sacramento: "California",
+  "salt-lake-city": "Utah",
   "san-antonio": "Texas",
   "san-diego": "California",
   "san-francisco": "California",
   seattle: "Washington",
   tampa: "Florida",
+  tucson: "Arizona",
+  "virginia-beach": "Virginia",
   "washington-dc": "District of Columbia",
+  wichita: "Kansas",
 };
 
+function canonicalHubSlug(city) {
+  const slug = String(city?.slug || "").trim().toLowerCase();
+  return HUB_SLUG_FIXES[slug] || slug;
+}
+
+function titleCaseSlug(slug) {
+  return String(slug || "")
+    .split("-")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function isUsStateKey(key) {
+  if (!key) return false;
+  if (US_STATE_ALIASES[key]) return true;
+  for (const [name, abbrs] of Object.entries(US_STATE_ALIASES)) {
+    if (abbrs.includes(key)) return true;
+  }
+  return false;
+}
+
+/** True when /msp/{slug} is a US state page, not a city page. New York stays a city hub. */
+function isStateHub(city) {
+  const rawSlug = String(city?.slug || "").trim().toLowerCase();
+  if (CITY_STATE_FALLBACK[rawSlug] || CITY_NAME_ALIASES[rawSlug]) return false;
+  const slug = canonicalHubSlug(city);
+  if (CITY_STATE_FALLBACK[slug]) return false;
+  const nameKey = cityKey(city?.name);
+  return isUsStateKey(slug) || isUsStateKey(nameKey);
+}
+
 function resolveCityState(city) {
+  if (isStateHub(city)) return displayStateName(city);
   const explicit = String(city?.state || "").trim();
   if (explicit) return explicit;
-  return CITY_STATE_FALLBACK[String(city?.slug || "").toLowerCase()] || "";
+  const rawSlug = String(city?.slug || "").trim().toLowerCase();
+  return CITY_STATE_FALLBACK[rawSlug] || CITY_STATE_FALLBACK[canonicalHubSlug(city)] || "";
+}
+
+function displayStateName(city) {
+  const slug = canonicalHubSlug(city);
+  if (US_STATE_ALIASES[slug]) return titleCaseSlug(slug);
+  const name = String(city?.name || "").trim();
+  return name || titleCaseSlug(slug);
 }
 
 function stateKeys(value) {
@@ -110,36 +185,82 @@ function stateKeys(value) {
   return [key];
 }
 
+function hubStateKeys(city) {
+  const keys = new Set([
+    ...stateKeys(canonicalHubSlug(city)),
+    ...stateKeys(city?.name),
+    ...stateKeys(displayStateName(city)),
+  ]);
+  keys.delete("");
+  return [...keys];
+}
+
 function cityMatchVariants(city) {
   const name = String(city?.name || "").trim();
   const slug = String(city?.slug || "").trim().toLowerCase();
-  const spaced = slug.replace(/-/g, " ");
-  const fromName = cityKey(name).replace(/-/g, " ");
-  return [...new Set([name, slug, spaced, fromName].map((s) => String(s || "").trim()).filter(Boolean))];
+  const extras = CITY_NAME_ALIASES[slug] || [];
+  const raw = [
+    name,
+    slug,
+    slug.replace(/-/g, " "),
+    cityKey(name).replace(/-/g, " "),
+    ...extras,
+  ];
+  return [...new Set(raw.map((s) => String(s || "").trim()).filter(Boolean))];
+}
+
+function hubCityKeys(city) {
+  const keys = new Set();
+  cityMatchVariants(city).forEach((v) => keys.add(cityKey(v)));
+  keys.delete("");
+  return keys;
+}
+
+function matchesHubState(companyState, city) {
+  const st = String(companyState || "").trim();
+  if (!st) return false;
+  const want = new Set(hubStateKeys(city));
+  return stateKeys(st).some((k) => want.has(k));
 }
 
 function companyBelongsToCity(company, city) {
+  if (!city) return false;
+  if (isStateHub(city)) {
+    return matchesHubState(company?.companyState, city);
+  }
   const key = cityKey(company?.companyCity);
-  if (!key || !city) return false;
-  const cityOk = key === String(city.slug || "").toLowerCase() || key === cityKey(city.name);
-  if (!cityOk) return false;
-
+  if (!key || !hubCityKeys(city).has(key)) return false;
   const hubState = resolveCityState(city);
   if (!hubState) return true;
-  const companyState = String(company?.companyState || "").trim();
-  if (!companyState) return false;
+  const st = String(company?.companyState || "").trim();
+  if (!st) return false;
   const want = new Set(stateKeys(hubState));
-  return stateKeys(companyState).some((k) => want.has(k));
+  return stateKeys(st).some((k) => want.has(k));
+}
+
+function exactFieldOr(field, variants) {
+  const values = [...new Set((variants || []).map((v) => String(v || "").trim()).filter(Boolean))];
+  if (!values.length) return null;
+  return {
+    $or: values.map((v) => ({
+      [field]: { $regex: `^${escapeRegex(v.replace(/-/g, " "))}$`, $options: "i" },
+    })),
+  };
 }
 
 function mitCityFilter(city) {
-  const variants = cityMatchVariants(city);
-  if (!variants.length) return { _id: { $exists: false } };
-  const cityClause = {
-    $or: variants.map((v) => ({
-      companyCity: { $regex: `^${escapeRegex(v)}$`, $options: "i" },
-    })),
-  };
+  if (isStateHub(city)) {
+    const stateClause = exactFieldOr("companyState", hubStateKeys(city).map((k) => k.replace(/-/g, " ")));
+    if (!stateClause) return { _id: { $exists: false } };
+    return {
+      isPublished: { $ne: false },
+      companyState: { $exists: true, $nin: ["", null] },
+      ...stateClause,
+    };
+  }
+
+  const cityClause = exactFieldOr("companyCity", cityMatchVariants(city));
+  if (!cityClause) return { _id: { $exists: false } };
   const hubState = resolveCityState(city);
   const stateVariants = stateKeys(hubState);
   const filter = {
@@ -147,14 +268,11 @@ function mitCityFilter(city) {
     companyCity: { $exists: true, $nin: ["", null] },
   };
   if (stateVariants.length) {
-    filter.$and = [
-      cityClause,
-      {
-        $or: stateVariants.map((v) => ({
-          companyState: { $regex: `^${escapeRegex(v.replace(/-/g, " "))}$`, $options: "i" },
-        })),
-      },
-    ];
+    const stateClause = exactFieldOr(
+      "companyState",
+      stateVariants.map((k) => k.replace(/-/g, " ")),
+    );
+    filter.$and = [cityClause, stateClause];
   } else {
     Object.assign(filter, cityClause);
   }
@@ -218,6 +336,9 @@ function mapMitToHubCompany(doc) {
 module.exports = {
   cityKey,
   cityMatchVariants,
+  canonicalHubSlug,
+  isStateHub,
+  displayStateName,
   resolveCityState,
   companyBelongsToCity,
   companyBelongsToCountry,

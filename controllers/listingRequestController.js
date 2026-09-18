@@ -1,5 +1,4 @@
 const ListingRequest = require("../models/ListingRequest");
-const ManagedItCompany = require("../models/ManagedItCompany");
 const City = require("../models/City");
 const cloudinary = require("../config/cloudinary");
 const nodemailer = require("nodemailer");
@@ -8,11 +7,17 @@ const {
   findPublishedMspCountry,
   appendListingCompanyToCity,
 } = require("./cityController");
-const { companyBelongsToCity } = require("../utils/cityMatch");
-const { nameKey } = require("./managedItController");
 
 function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function nameKey(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[.,'"()]/g, "")
+    .replace(/\s+/g, " ");
 }
 
 async function findExistingByCompanyName(companyName) {
@@ -20,10 +25,13 @@ async function findExistingByCompanyName(companyName) {
   if (!key) return null;
 
   const loose = new RegExp(key.split(" ").map(escapeRegex).join("\\s+"), "i");
-  const [mitRows, requests] = await Promise.all([
-    ManagedItCompany.find({ isPublished: { $ne: false }, companyName: loose })
-      .select("slug companyName companyCity companyCountry")
-      .limit(80)
+  const [cities, requests] = await Promise.all([
+    City.find({
+      hubSlug: "managed-service-providers",
+      isPublished: true,
+      "hubCompanies.companyName": loose,
+    })
+      .select("slug name hubCompanies.slug hubCompanies.companyName hubCompanies.companyCity hubCompanies.companyCountry")
       .lean(),
     ListingRequest.find({
       status: { $in: ["pending", "approved"] },
@@ -34,23 +42,18 @@ async function findExistingByCompanyName(companyName) {
       .lean(),
   ]);
 
-  const mit = mitRows.find((c) => nameKey(c.companyName) === key);
-  if (mit) {
-    const cities = await City.find({
-      hubSlug: "managed-service-providers",
-      isPublished: true,
-    })
-      .select("slug name")
-      .lean();
-    const city = cities.find((c) => companyBelongsToCity(mit, c));
-    return {
-      reason: "listed",
-      companyName: mit.companyName,
-      slug: mit.slug,
-      cityName: city?.name || mit.companyCity || "",
-      citySlug: city?.slug || "",
-      countryName: mit.companyCountry || "",
-    };
+  for (const city of cities) {
+    const hit = (city.hubCompanies || []).find((c) => nameKey(c.companyName) === key);
+    if (hit) {
+      return {
+        reason: "listed",
+        companyName: hit.companyName,
+        slug: hit.slug,
+        cityName: city.name || hit.companyCity || "",
+        citySlug: city.slug || "",
+        countryName: hit.companyCountry || "",
+      };
+    }
   }
 
   const existingReq = requests.find((r) => nameKey(r.companyName) === key);
@@ -428,7 +431,7 @@ exports.updateListingStatus = async (req, res) => {
       if (pubErr.code === "DUPLICATE") {
         return res.status(409).json({
           ok: false,
-          message: "Company already listed (same name in Managed IT)",
+          message: "Company already listed on this city page",
         });
       }
       throw pubErr;

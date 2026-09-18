@@ -87,7 +87,7 @@ exports.listCompanies = async (req, res) => {
         .sort({ companyName: 1 })
         .skip(skip)
         .limit(limit)
-        .select("slug companyName employees industry website companyCity companyState companyCountry phone description image companyServices foundedYear linkedinUrl facebookUrl twitterUrl")
+        .select("slug companyName employees industry website companyCity companyState companyCountry phone description image companyServices companyPartners technologies foundedYear linkedinUrl facebookUrl twitterUrl")
         .lean(),
     ]);
 
