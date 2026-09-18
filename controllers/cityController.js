@@ -322,21 +322,82 @@ exports.getManagedItHubSitemapEntries = async (req, res) => {
 
 // --- Admin ---
 
+/** Lightweight city list — no hubCompanies / content blobs (those load on demand). */
 exports.listCitiesAdmin = async (req, res) => {
   try {
     const hubSlug = req.query.hubSlug || HUB_MANAGED_IT;
-    const cities = await City.find({ hubSlug })
-      .sort({ updatedAt: -1 })
-      .lean();
+    const cities = await City.aggregate([
+      { $match: { hubSlug } },
+      { $sort: { updatedAt: -1 } },
+      {
+        $project: {
+          name: 1,
+          slug: 1,
+          state: 1,
+          hubSlug: 1,
+          heading: 1,
+          metaTitle: 1,
+          metaDescription: 1,
+          isPublished: 1,
+          faqs: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          companyCount: { $size: { $ifNull: ["$hubCompanies", []] } },
+        },
+      },
+    ]);
 
-    const data = cities.map((c) => ({
-      ...c,
-      companyCount: Array.isArray(c.hubCompanies) ? c.hubCompanies.length : 0,
-    }));
-
-    res.json({ ok: true, data });
+    res.json({ ok: true, data: cities });
   } catch (err) {
     console.error("listCitiesAdmin:", err);
+    res.status(500).json({ ok: false, message: "Server error" });
+  }
+};
+
+/** Single city for admin — include=content|companies|all (default: meta + faqs, no heavy arrays). */
+exports.getCityAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const include = String(req.query.include || "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    const wantCompanies = include.includes("companies") || include.includes("all");
+    const wantContent = include.includes("content") || include.includes("all");
+
+    const select = [
+      "name",
+      "slug",
+      "state",
+      "hubSlug",
+      "heading",
+      "metaTitle",
+      "metaDescription",
+      "isPublished",
+      "faqs",
+      "createdAt",
+      "updatedAt",
+      ...(wantContent ? ["content"] : []),
+      ...(wantCompanies ? ["hubCompanies"] : []),
+    ].join(" ");
+
+    const city = await City.findById(id).select(select).lean();
+    if (!city) {
+      return res.status(404).json({ ok: false, message: "City not found" });
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        ...city,
+        companyCount: Array.isArray(city.hubCompanies)
+          ? city.hubCompanies.length
+          : undefined,
+      },
+    });
+  } catch (err) {
+    console.error("getCityAdmin:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -380,28 +441,56 @@ exports.listAllHubCompaniesAdmin = async (req, res) => {
     const rawLimit = parseInt(String(req.query.limit || "50"), 10);
     const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 50));
 
-    const cities = await City.find({ hubSlug })
-      .sort({ name: 1 })
-      .select("name slug hubCompanies")
-      .lean();
-
-    const rows = [];
-    for (const c of cities) {
-      for (const co of c.hubCompanies || []) {
-        rows.push({
-          cityId: c._id,
-          cityName: c.name,
-          citySlug: c.slug,
-          ...co,
-        });
-      }
-    }
-
-    const filtered = q
-      ? rows.filter((r) => hubCompanySearchHaystack(r).includes(q))
-      : rows;
-
+    // Search path: still flatten, but only search-relevant fields (much smaller payload).
     if (q) {
+      const cities = await City.find({ hubSlug })
+        .sort({ name: 1 })
+        .select({
+          name: 1,
+          slug: 1,
+          "hubCompanies.slug": 1,
+          "hubCompanies.companyName": 1,
+          "hubCompanies.companyCity": 1,
+          "hubCompanies.description": 1,
+          "hubCompanies.keywords": 1,
+          "hubCompanies.image": 1,
+          "hubCompanies.website": 1,
+          "hubCompanies.isSponsored": 1,
+          "hubCompanies.employees": 1,
+          "hubCompanies.foundedYear": 1,
+          "hubCompanies.phone": 1,
+          "hubCompanies.address": 1,
+          "hubCompanies.companyStreet": 1,
+          "hubCompanies.companyPostalCode": 1,
+          "hubCompanies.companyServices": 1,
+          "hubCompanies.companyPartners": 1,
+          "hubCompanies.industryTags": 1,
+          "hubCompanies.linkedinUrl": 1,
+          "hubCompanies.facebookUrl": 1,
+          "hubCompanies.twitterUrl": 1,
+          "hubCompanies.naicsCodes": 1,
+          "hubCompanies.sicCodes": 1,
+          "hubCompanies.technologies": 1,
+          "hubCompanies.vars": 1,
+          "hubCompanies.revenueSize": 1,
+          "hubCompanies.companyState": 1,
+          "hubCompanies.companyCountry": 1,
+        })
+        .lean();
+
+      const rows = [];
+      for (const c of cities) {
+        for (const co of c.hubCompanies || []) {
+          rows.push({
+            cityId: c._id,
+            cityName: c.name,
+            citySlug: c.slug,
+            ...co,
+          });
+        }
+      }
+
+      const filtered = rows.filter((r) => hubCompanySearchHaystack(r).includes(q));
       filtered.sort((a, b) => {
         const da = hubCompanyRelevanceScore(a, q);
         const db = hubCompanyRelevanceScore(b, q);
@@ -410,23 +499,93 @@ exports.listAllHubCompaniesAdmin = async (req, res) => {
           sensitivity: "base",
         });
       });
-    } else {
-      filtered.sort((a, b) => {
-        const c0 = (a.cityName || "").localeCompare(b.cityName || "", undefined, {
-          sensitivity: "base",
-        });
-        if (c0 !== 0) return c0;
-        return (a.companyName || "").localeCompare(b.companyName || "", undefined, {
-          sensitivity: "base",
-        });
+
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const safePage = Math.min(page, totalPages);
+      const skip = (safePage - 1) * limit;
+      const pageData = filtered.slice(skip, skip + limit);
+
+      return res.json({
+        ok: true,
+        data: pageData,
+        total,
+        page: safePage,
+        limit,
+        totalPages,
       });
     }
 
-    const total = filtered.length;
-    const totalPages = Math.max(1, Math.ceil(total / limit));
-    const safePage = Math.min(page, totalPages);
-    const skip = (safePage - 1) * limit;
-    const pageData = filtered.slice(skip, skip + limit);
+    // Browse path: Mongo unwind + skip/limit so Node never holds the full flatten.
+    const [agg] = await City.aggregate([
+      { $match: { hubSlug } },
+      { $sort: { name: 1 } },
+      { $project: { name: 1, slug: 1, hubCompanies: 1 } },
+      { $unwind: { path: "$hubCompanies", preserveNullAndEmptyArrays: false } },
+      { $sort: { name: 1, "hubCompanies.companyName": 1 } },
+      {
+        $facet: {
+          meta: [{ $count: "total" }],
+          data: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $replaceRoot: {
+                newRoot: {
+                  $mergeObjects: [
+                    "$hubCompanies",
+                    {
+                      cityId: "$_id",
+                      cityName: "$name",
+                      citySlug: "$slug",
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const total = agg?.meta?.[0]?.total || 0;
+    const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+    let safePage = Math.min(page, totalPages);
+    let pageData = Array.isArray(agg?.data) ? agg.data : [];
+
+    // Out-of-range page: re-run skip against last valid page.
+    if (safePage !== page && total > 0) {
+      const [retry] = await City.aggregate([
+        { $match: { hubSlug } },
+        { $sort: { name: 1 } },
+        { $project: { name: 1, slug: 1, hubCompanies: 1 } },
+        { $unwind: { path: "$hubCompanies", preserveNullAndEmptyArrays: false } },
+        { $sort: { name: 1, "hubCompanies.companyName": 1 } },
+        {
+          $facet: {
+            data: [
+              { $skip: (safePage - 1) * limit },
+              { $limit: limit },
+              {
+                $replaceRoot: {
+                  newRoot: {
+                    $mergeObjects: [
+                      "$hubCompanies",
+                      {
+                        cityId: "$_id",
+                        cityName: "$name",
+                        citySlug: "$slug",
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      ]);
+      pageData = Array.isArray(retry?.data) ? retry.data : [];
+    }
 
     res.json({
       ok: true,

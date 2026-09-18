@@ -8,6 +8,7 @@ const {
   getCityPublicByHub,
   getManagedItHubSitemapEntries,
   listCitiesAdmin,
+  getCityAdmin,
   listAllHubCompaniesAdmin,
   createCity,
   updateCity,
@@ -50,6 +51,7 @@ router.get(
   adminAuthMiddleware,
   listAllHubCompaniesAdmin,
 );
+router.get("/cities/:id", adminAuthMiddleware, getCityAdmin);
 router.post("/cities", adminAuthMiddleware, createCity);
 router.put("/cities/:id", adminAuthMiddleware, updateCity);
 router.put(
