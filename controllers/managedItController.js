@@ -15,6 +15,15 @@ function uniqueSlug(companyName, usedSlugs) {
   return slug;
 }
 
+/** Case-insensitive company name key. "Acme  IT" and "acme it" are the same company. */
+function nameKey(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[.,'"()]/g, "")
+    .replace(/\s+/g, " ");
+}
+
 function rowToDoc(cleaned, slug) {
   return {
     slug,
@@ -103,7 +112,7 @@ exports.listCompanies = async (req, res) => {
         .sort({ companyName: 1 })
         .skip(skip)
         .limit(limit)
-        .select("slug companyName employees industry website companyCity companyState companyCountry phone description image companyServices foundedYear linkedinUrl facebookUrl twitterUrl")
+        .select("slug companyName employees industry website companyCity companyState companyCountry phone description image companyServices companyPartners technologies foundedYear linkedinUrl facebookUrl twitterUrl")
         .lean(),
     ]);
 
@@ -214,27 +223,45 @@ exports.uploadSheet = async (req, res) => {
     if (!rows.length) return res.status(400).json({ ok: false, message: "No rows found in sheet." });
 
     const mode = String(req.body.mode || "append").toLowerCase(); // "replace" | "append"
+    const sheetRows = rows.length;
 
-    // Pre-load existing slugs to avoid duplicates
-    const existingSlugs = new Set(
-      (await ManagedItCompany.find({}, "slug").lean()).map((c) => c.slug)
+    const existing = await ManagedItCompany.find({}, "slug companyName").lean();
+    const existingBefore = existing.length;
+    const existingNames = new Set(existing.map((c) => nameKey(c.companyName)).filter(Boolean));
+    const usedSlugs = new Set(
+      mode === "replace" ? [] : existing.map((c) => c.slug).filter(Boolean),
     );
-    const usedSlugs = new Set(existingSlugs);
+    const seenInSheet = new Set();
 
     const docs = [];
-    const seenNames = new Set();
+    let skippedEmpty = 0;
+    let skippedSheetDuplicates = 0;
+    let skippedExisting = 0;
 
     for (const row of rows) {
       const companyName = String(row["Company Name"] ?? "").trim();
-      if (!companyName) continue;
-      const key = companyName.toLowerCase();
-      if (seenNames.has(key)) continue;
-      seenNames.add(key);
+      const key = nameKey(companyName);
+      if (!key) {
+        skippedEmpty += 1;
+        continue;
+      }
+      if (seenInSheet.has(key)) {
+        skippedSheetDuplicates += 1;
+        continue;
+      }
+      seenInSheet.add(key);
+
+      if (mode !== "replace" && existingNames.has(key)) {
+        skippedExisting += 1;
+        continue;
+      }
 
       const cleaned = cleanCompanyData(row);
-      if (!cleaned.companyName) continue;
+      if (!cleaned.companyName) {
+        skippedEmpty += 1;
+        continue;
+      }
 
-      // Also map Company State which cleanCompanyData may not cover
       if (!cleaned.companyState && row["Company State"]) {
         cleaned.companyState = String(row["Company State"]).trim();
       }
@@ -243,28 +270,61 @@ exports.uploadSheet = async (req, res) => {
       }
 
       const slug = uniqueSlug(cleaned.companyName, usedSlugs);
-      if (!slug) continue;
+      if (!slug) {
+        skippedEmpty += 1;
+        continue;
+      }
       docs.push(rowToDoc(cleaned, slug));
     }
 
-    if (!docs.length) return res.status(400).json({ ok: false, message: "No valid company rows found." });
-
     if (mode === "replace") {
       await ManagedItCompany.deleteMany({});
+      if (docs.length) await ManagedItCompany.insertMany(docs, { ordered: false });
+    } else if (docs.length) {
       await ManagedItCompany.insertMany(docs, { ordered: false });
-    } else {
-      // Append: upsert by slug
-      const ops = docs.map((d) => ({
-        updateOne: {
-          filter: { slug: d.slug },
-          update: { $set: d },
-          upsert: true,
-        },
-      }));
-      await ManagedItCompany.bulkWrite(ops, { ordered: false });
     }
 
-    res.json({ ok: true, message: `${docs.length} companies ${mode === "replace" ? "replaced" : "upserted"} successfully.`, count: docs.length });
+    const uploaded = docs.length;
+    const skippedDuplicates = skippedSheetDuplicates + skippedExisting;
+    const keptExisting = mode === "replace" ? 0 : existingBefore;
+    const totalAfter = keptExisting + uploaded;
+    const stats = {
+      sheetRows,
+      uploaded,
+      skippedDuplicates,
+      skippedExisting,
+      skippedSheetDuplicates,
+      skippedEmpty,
+      keptExisting,
+      totalAfter,
+      mode: mode === "replace" ? "replace" : "append",
+    };
+
+    const message =
+      mode === "replace"
+        ? [
+            `Replace: purani list delete ho gayi.`,
+            `Sheet mein ${sheetRows} companies thin.`,
+            `${uploaded} upload ho gayi.`,
+            skippedSheetDuplicates ? `${skippedSheetDuplicates} sheet ke andar duplicate skip.` : "",
+            `Ab database mein ${totalAfter} companies hain.`,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : [
+            `Append: purani companies remove nahi hui (${keptExisting} pehle se thi).`,
+            `Sheet mein ${sheetRows} companies thin.`,
+            `${uploaded} nayi add ho gayi.`,
+            skippedDuplicates
+              ? `${skippedDuplicates} duplicate skip (${skippedExisting} already in database, ${skippedSheetDuplicates} sheet repeat).`
+              : "Koi duplicate skip nahi hui.",
+            skippedEmpty ? `${skippedEmpty} empty / invalid rows ignore.` : "",
+            `Ab database mein ${totalAfter} companies hain.`,
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+    res.json({ ok: true, message, count: uploaded, stats });
   } catch (err) {
     console.error("uploadSheet:", err);
     res.status(500).json({ ok: false, message: "Server error", error: process.env.NODE_ENV === "development" ? err.message : undefined });
@@ -315,3 +375,5 @@ exports.deleteAll = async (req, res) => {
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
+
+exports.nameKey = nameKey;

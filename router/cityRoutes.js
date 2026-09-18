@@ -8,6 +8,7 @@ const {
   getCityPublicByHub,
   getManagedItHubSitemapEntries,
   listCitiesAdmin,
+  getCityAdmin,
   listAllHubCompaniesAdmin,
   createCity,
   updateCity,
@@ -17,6 +18,7 @@ const {
   uploadCityCompaniesExcel,
   toggleSponsoredHubCompany,
   searchCompanies,
+  wipeListingCompanies,
 } = require("../controllers/cityController.js");
 
 const router = express.Router();
@@ -49,6 +51,7 @@ router.get(
   adminAuthMiddleware,
   listAllHubCompaniesAdmin,
 );
+router.get("/cities/:id", adminAuthMiddleware, getCityAdmin);
 router.post("/cities", adminAuthMiddleware, createCity);
 router.put("/cities/:id", adminAuthMiddleware, updateCity);
 router.put(
@@ -73,6 +76,11 @@ router.post(
   adminAuthMiddleware,
   csvUpload.fields([{ name: "file", maxCount: 1 }]),
   uploadCityCompaniesExcel,
+);
+router.post(
+  "/admin/wipe-listing-companies",
+  adminAuthMiddleware,
+  wipeListingCompanies,
 );
 
 module.exports = router;

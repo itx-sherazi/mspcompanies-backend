@@ -1,10 +1,75 @@
 const ListingRequest = require("../models/ListingRequest");
+const City = require("../models/City");
 const cloudinary = require("../config/cloudinary");
 const nodemailer = require("nodemailer");
 const {
   findPublishedMspCity,
+  findPublishedMspCountry,
   appendListingCompanyToCity,
 } = require("./cityController");
+
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function nameKey(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[.,'"()]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+async function findExistingByCompanyName(companyName) {
+  const key = nameKey(companyName);
+  if (!key) return null;
+
+  const loose = new RegExp(key.split(" ").map(escapeRegex).join("\\s+"), "i");
+  const [cities, requests] = await Promise.all([
+    City.find({
+      hubSlug: "managed-service-providers",
+      isPublished: true,
+      "hubCompanies.companyName": loose,
+    })
+      .select("slug name hubCompanies.slug hubCompanies.companyName hubCompanies.companyCity hubCompanies.companyCountry")
+      .lean(),
+    ListingRequest.find({
+      status: { $in: ["pending", "approved"] },
+      companyName: loose,
+    })
+      .select("companyName status requestedCity requestedCitySlug requestedCountry requestedCountrySlug publishedCompanySlug")
+      .limit(80)
+      .lean(),
+  ]);
+
+  for (const city of cities) {
+    const hit = (city.hubCompanies || []).find((c) => nameKey(c.companyName) === key);
+    if (hit) {
+      return {
+        reason: "listed",
+        companyName: hit.companyName,
+        slug: hit.slug,
+        cityName: city.name || hit.companyCity || "",
+        citySlug: city.slug || "",
+        countryName: hit.companyCountry || "",
+      };
+    }
+  }
+
+  const existingReq = requests.find((r) => nameKey(r.companyName) === key);
+  if (existingReq) {
+    return {
+      reason: existingReq.status === "approved" ? "listed" : "pending",
+      companyName: existingReq.companyName,
+      slug: existingReq.publishedCompanySlug || "",
+      cityName: existingReq.requestedCity || "",
+      citySlug: existingReq.requestedCitySlug || "",
+      countryName: existingReq.requestedCountry || "",
+    };
+  }
+
+  return null;
+}
 
 function toArray(val) {
   if (!val) return [];
@@ -52,6 +117,7 @@ exports.submitListingRequest = async (req, res) => {
     const {
       companyName, companyDescription, website, linkedinUrl, phone,
       foundedYear, companySize, mainOfficeAddress, requestedCity, requestedCitySlug,
+      requestedCountry, requestedCountrySlug,
       contactEmail, personOfContact, jobTitle, fullName, note,
       agreedToPrivacy, certifications, verticalFocus, partners, services, heardFrom,
       listingType, featuredAddon,
@@ -67,9 +133,22 @@ exports.submitListingRequest = async (req, res) => {
     if (!city) {
       return res.status(400).json({ ok: false, message: "Please select a valid city from the list" });
     }
+    const country = await findPublishedMspCountry(requestedCountrySlug, requestedCountry);
+    if (!country) {
+      return res.status(400).json({ ok: false, message: "Please select a valid country from the list" });
+    }
     const agreed = agreedToPrivacy === true || agreedToPrivacy === "true";
     if (!agreed) {
       return res.status(400).json({ ok: false, message: "You must agree to the Privacy Policy" });
+    }
+
+    const existing = await findExistingByCompanyName(companyName);
+    if (existing) {
+      const message =
+        existing.reason === "pending"
+          ? "This company is already submitted. Our team is reviewing the listing request."
+          : "This company is already listed in our database.";
+      return res.status(409).json({ ok: false, exists: true, message, match: existing });
     }
 
     let logoUrl = "";
@@ -100,6 +179,8 @@ exports.submitListingRequest = async (req, res) => {
       mainOfficeAddress: mainOfficeAddress?.trim() || "",
       requestedCity: city.name,
       requestedCitySlug: city.slug,
+      requestedCountry: country.name,
+      requestedCountrySlug: country.slug,
       logoUrl,
       contactEmail: contactEmail.trim().toLowerCase(),
       personOfContact: personOfContact?.trim() || "",
@@ -175,6 +256,7 @@ exports.submitListingRequest = async (req, res) => {
             ${row("Phone", listing.phone || "N/A")}
             ${row("Main Office Address", listing.mainOfficeAddress || "N/A")}
             ${row("Requested City", `<strong style="color:#0356A6;">${listing.requestedCity || "N/A"}</strong>`)}
+            ${row("Requested Country", `<strong style="color:#0356A6;">${listing.requestedCountry || "N/A"}</strong>`)}
             ${row("Vertical Focus", listing.verticalFocus || "N/A")}
           </td>
         </tr>
@@ -247,6 +329,24 @@ exports.submitListingRequest = async (req, res) => {
   }
 };
 
+// PUBLIC: Check if company name is already listed or submitted
+exports.checkCompanyName = async (req, res) => {
+  try {
+    const name = String(req.query.name || "").trim();
+    if (!name) return res.json({ ok: true, exists: false });
+    const match = await findExistingByCompanyName(name);
+    if (!match) return res.json({ ok: true, exists: false });
+    const message =
+      match.reason === "pending"
+        ? "This company is already submitted. Our team is reviewing the listing request."
+        : "This company is already listed in our database.";
+    res.json({ ok: true, exists: true, message, match });
+  } catch (err) {
+    console.error("checkCompanyName:", err);
+    res.status(500).json({ ok: false, message: "Server error" });
+  }
+};
+
 // ADMIN: Get all listing requests
 exports.getAllListingRequests = async (req, res) => {
   try {
@@ -300,6 +400,8 @@ exports.updateListingStatus = async (req, res) => {
         published: {
           cityName: city.name,
           citySlug: city.slug,
+          countryName: listing.requestedCountry || "",
+          countrySlug: listing.requestedCountrySlug || "",
           companySlug: listing.publishedCompanySlug,
         },
       });
@@ -320,6 +422,8 @@ exports.updateListingStatus = async (req, res) => {
         published: {
           cityName: city.name,
           citySlug: city.slug,
+          countryName: listing.requestedCountry || "",
+          countrySlug: listing.requestedCountrySlug || "",
           companySlug: published.slug,
         },
       });
@@ -327,7 +431,7 @@ exports.updateListingStatus = async (req, res) => {
       if (pubErr.code === "DUPLICATE") {
         return res.status(409).json({
           ok: false,
-          message: "Company already listed in this city",
+          message: "Company already listed on this city page",
         });
       }
       throw pubErr;

@@ -40,6 +40,8 @@ const hubCompanySchema = new mongoose.Schema(
 const citySchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    /** US state / region for this hub (Texas, California). Used with city for MIT match. */
+    state: { type: String, default: "", trim: true },
     slug: {
       type: String,
       required: true,

@@ -13,6 +13,8 @@ const listingRequestSchema = new mongoose.Schema(
     mainOfficeAddress: { type: String, trim: true, default: "" },
     requestedCity: { type: String, trim: true, default: "" },
     requestedCitySlug: { type: String, trim: true, lowercase: true, default: "" },
+    requestedCountry: { type: String, trim: true, default: "" },
+    requestedCountrySlug: { type: String, trim: true, lowercase: true, default: "" },
     publishedCitySlug: { type: String, trim: true, lowercase: true, default: "" },
     publishedCompanySlug: { type: String, trim: true, lowercase: true, default: "" },
     logoUrl: { type: String, trim: true, default: "" },
