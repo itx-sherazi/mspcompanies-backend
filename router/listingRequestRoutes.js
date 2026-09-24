@@ -1,7 +1,8 @@
 const express = require("express");
 const multer = require("multer");
 const router = express.Router();
-const { adminAuthMiddleware: adminAuth } = require("../middleware/adminAuthMiddleware");
+const { formLimiter } = require("../middleware/rateLimits");
+const { adminAuthMiddleware: adminAuth, requireRole } = require("../middleware/adminAuthMiddleware");
 const {
   submitListingRequest,
   checkCompanyName,
@@ -21,11 +22,11 @@ const upload = multer({
 
 // Public
 router.get("/listing-request/check", checkCompanyName);
-router.post("/listing-request", upload.single("logo"), submitListingRequest);
+router.post("/listing-request", formLimiter(), upload.single("logo"), submitListingRequest);
 
 // Admin
-router.get("/listing-requests", adminAuth, getAllListingRequests);
-router.patch("/listing-requests/:id/status", adminAuth, updateListingStatus);
-router.delete("/listing-requests/:id", adminAuth, deleteListingRequest);
+router.get("/listing-requests", adminAuth, requireRole("admin"), getAllListingRequests);
+router.patch("/listing-requests/:id/status", adminAuth, requireRole("admin"), updateListingStatus);
+router.delete("/listing-requests/:id", adminAuth, requireRole("admin"), deleteListingRequest);
 
 module.exports = router;

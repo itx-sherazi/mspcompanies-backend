@@ -6,13 +6,14 @@ const {
   updateParentCategory,
   deleteParentCategory,
 } = require("../controllers/parentCategoryController");
+const { adminAuthMiddleware } = require("../middleware/adminAuthMiddleware");
 
 const router = express.Router();
 
 router.get("/",     getParentCategories);
 router.get("/:slug", getParentCategoryBySlug);
-router.post("/",    createParentCategory);
-router.put("/:id",  updateParentCategory);
-router.delete("/:id", deleteParentCategory);
+router.post("/",    adminAuthMiddleware, createParentCategory);
+router.put("/:id",  adminAuthMiddleware, updateParentCategory);
+router.delete("/:id", adminAuthMiddleware, deleteParentCategory);
 
 module.exports = router;

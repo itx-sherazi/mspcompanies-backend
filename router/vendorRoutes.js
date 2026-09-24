@@ -1,5 +1,6 @@
 const express = require("express");
 const multer = require("multer");
+const { adminAuthMiddleware } = require("../middleware/adminAuthMiddleware");
 const {
   getVendors, getVendorBySlug, getVendorsBySlugs,
   createVendor, updateVendor, deleteVendor, importVendors, deleteAllVendors,
@@ -18,13 +19,13 @@ const logoUpload = multer({
 });
 
 router.get("/by-slugs",  getVendorsBySlugs);
-router.post("/import",   importVendors);
-router.delete("/all",    deleteAllVendors);
-router.post("/upload-logo", logoUpload.single("logo"), uploadVendorLogo);
+router.post("/import",   adminAuthMiddleware, importVendors);
+router.delete("/all",    adminAuthMiddleware, deleteAllVendors);
+router.post("/upload-logo", adminAuthMiddleware, logoUpload.single("logo"), uploadVendorLogo);
 router.get("/",          getVendors);
-router.post("/",         createVendor);
+router.post("/",         adminAuthMiddleware, createVendor);
 router.get("/:slug",     getVendorBySlug);
-router.put("/:slug",     updateVendor);
-router.delete("/:slug",  deleteVendor);
+router.put("/:slug",     adminAuthMiddleware, updateVendor);
+router.delete("/:slug",  adminAuthMiddleware, deleteVendor);
 
 module.exports = router;

@@ -1,5 +1,7 @@
 const Category       = require("../models/Category");
 const ParentCategory = require("../models/ParentCategory");
+const { cleanHtml } = require("../utils/sanitizeHtml");
+const { revalidateFrontend } = require("../utils/revalidateFrontend");
 
 function normalizeFaqs(input) {
   if (!Array.isArray(input)) return [];
@@ -11,17 +13,6 @@ function normalizeFaqs(input) {
     .filter((f) => f.question || f.answer);
 }
 
-async function revalidateFrontend(paths = []) {
-  try {
-    const base   = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
-    const secret = process.env.REVALIDATE_SECRET || "";
-    await fetch(`${base}/api/revalidate?secret=${secret}`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ paths }),
-    });
-  } catch (_) {}
-}
 
 // POST /api/v1/categories  create new category (slug auto from title)
 exports.createCategory = async (req, res) => {
@@ -121,7 +112,7 @@ exports.updateCategory = async (req, res) => {
     }
     if (req.body.metaTitle       !== undefined) category.meta.title       = String(req.body.metaTitle).trim();
     if (req.body.metaDescription !== undefined) category.meta.description = String(req.body.metaDescription).trim();
-    if (req.body.contentHtml     !== undefined) category.contentHtml      = typeof req.body.contentHtml === "string" ? req.body.contentHtml : "";
+    if (req.body.contentHtml     !== undefined) category.contentHtml      = typeof req.body.contentHtml === "string" ? cleanHtml(req.body.contentHtml) : "";
     if (req.body.faqs            !== undefined) category.faqs             = normalizeFaqs(req.body.faqs);
 
     if (req.body.status === "published" && !category.publishedAt) {

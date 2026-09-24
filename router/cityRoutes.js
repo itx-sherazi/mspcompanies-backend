@@ -1,7 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const csvUpload = require("../middleware/csvUpload.js");
-const { adminAuthMiddleware } = require("../middleware/adminAuthMiddleware.js");
+const { adminAuthMiddleware, requireRole } = require("../middleware/adminAuthMiddleware.js");
 const {
   getPublishedCitiesByHub,
   getCityCompanyPublicByHub,
@@ -80,6 +80,7 @@ router.post(
 router.post(
   "/admin/wipe-listing-companies",
   adminAuthMiddleware,
+  requireRole("admin"),
   wipeListingCompanies,
 );
 

@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
 const cloudinary = require("../config/cloudinary");
+const { escapeRegex } = require("../utils/escapeRegex");
 
 const getCloudinaryPublicId = (url) => {
   if (!url || !url.includes("res.cloudinary.com")) return null;
@@ -16,10 +17,6 @@ const getCloudinaryPublicId = (url) => {
   const publicIdWithExt = parts.slice(startIndex).join("/");
   return publicIdWithExt.substring(0, publicIdWithExt.lastIndexOf("."));
 };
-
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 function createSafeSlug(companyName) {
   return companyName

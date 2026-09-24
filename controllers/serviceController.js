@@ -1,6 +1,8 @@
 const Service = require("../models/Service");
 const CompanyTeamData = require("../models/TeamCompany");
 const cloudinary = require("../config/cloudinary");
+const { cleanHtml } = require("../utils/sanitizeHtml");
+const { escapeRegex } = require("../utils/escapeRegex");
 
 // slugify inline 180,000 no external dependency needed
 function slugify(str) {
@@ -33,7 +35,7 @@ exports.createService = async (req, res) => {
       metaDescription: metaDescription || "",
       metaKeywords: metaKeywords || "",
       filterConfig: filterConfig || [],
-      content: content || "",
+      content: cleanHtml(content || ""),
       faqs: faqs || [],
       providerCount: providerCount !== undefined ? providerCount : 500,
     });
@@ -56,7 +58,6 @@ exports.getAllServices = async (req, res) => {
 exports.getServiceBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
-    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const service = await Service.findOne({ slug: { $regex: new RegExp(`^${escapeRegex(slug)}$`, "i") } }).lean();
     if (!service) return res.status(404).json({ message: "Service not found." });
     res.status(200).json({ ok: true, data: service });
@@ -83,7 +84,7 @@ exports.updateService = async (req, res) => {
       service.slug = slug;
     }
     if (description !== undefined) service.description = description;
-    if (content !== undefined) service.content = content;
+    if (content !== undefined) service.content = cleanHtml(content);
     if (metaTitle !== undefined) service.metaTitle = metaTitle;
     if (metaDescription !== undefined) service.metaDescription = metaDescription;
     if (metaKeywords !== undefined) service.metaKeywords = metaKeywords;
@@ -153,11 +154,10 @@ exports.getCompaniesByServiceSlug = async (req, res) => {
     const { slug } = req.params;
     if (!slug) return res.status(400).json({ message: "Service slug is required" });
 
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 30;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
     const skip = (page - 1) * limit;
 
-    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const createRegexIn = (param) => {
       let values = Array.isArray(param) ? param : typeof param === "string" ? param.split(",") : [];
       values = values.map((v) => v.trim()).filter(Boolean);

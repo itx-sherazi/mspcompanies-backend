@@ -2,15 +2,13 @@ const ListingRequest = require("../models/ListingRequest");
 const City = require("../models/City");
 const cloudinary = require("../config/cloudinary");
 const nodemailer = require("nodemailer");
+const { escapeFields, safeUrl, cleanSubject, isValidEmail, firstTooLong } = require("../utils/emailSafety");
+const { escapeRegex } = require("../utils/escapeRegex");
 const {
   findPublishedMspCity,
   findPublishedMspCountry,
   appendListingCompanyToCity,
 } = require("./cityController");
-
-function escapeRegex(value) {
-  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 function nameKey(name) {
   return String(name || "")
@@ -126,8 +124,16 @@ exports.submitListingRequest = async (req, res) => {
     if (!companyName?.trim()) {
       return res.status(400).json({ ok: false, message: "Company name is required" });
     }
-    if (!contactEmail?.trim()) {
-      return res.status(400).json({ ok: false, message: "Contact email is required" });
+    if (!isValidEmail(contactEmail)) {
+      return res.status(400).json({ ok: false, message: "A valid contact email is required" });
+    }
+    const tooLong = firstTooLong(req.body, {
+      companyName: 200, companyDescription: 10000, website: 500, linkedinUrl: 500, phone: 50,
+      foundedYear: 10, companySize: 50, mainOfficeAddress: 500, personOfContact: 200,
+      jobTitle: 200, fullName: 200, note: 5000, verticalFocus: 300, heardFrom: 200,
+    });
+    if (tooLong) {
+      return res.status(400).json({ ok: false, message: `Invalid or too long: ${tooLong}` });
     }
     const city = await findPublishedMspCity(requestedCitySlug, requestedCity);
     if (!city) {
@@ -204,11 +210,16 @@ exports.submitListingRequest = async (req, res) => {
       const transporter = getListingTransporter();
       const submittedAt = new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" });
 
+      // Everything user-submitted is HTML-escaped before it goes into the email
+      const L = escapeFields(listing.toObject());
+      const websiteHref = safeUrl(listing.website);
+      const linkedinHref = safeUrl(listing.linkedinUrl);
+
       // ── Admin notification ──
       transporter.sendMail({
         from: `"MSP Companies" <${process.env.CONTACT_SMTP_USER}>`,
         to: "editor@mspcompanies.us",
-        subject: `🆕 New Listing Request: ${listing.companyName}`,
+        subject: cleanSubject(`🆕 New Listing Request: ${listing.companyName}`),
         html: `
 <!DOCTYPE html>
 <html>
@@ -247,55 +258,55 @@ exports.submitListingRequest = async (req, res) => {
         <tr>
           <td style="padding:24px 32px 8px;">
             <h2 style="margin:0 0 16px;color:#0F1C36;font-size:16px;border-bottom:2px solid #0356A6;padding-bottom:8px;">🏢 Company Information</h2>
-            ${listing.logoUrl ? `<p style="margin:0 0 12px;"><img src="${listing.logoUrl}" alt="logo" style="max-height:60px;max-width:160px;border:1px solid #e2e8f0;padding:4px;" /></p>` : ""}
-            ${row("Company Name", listing.companyName)}
-            ${row("Website", listing.website ? `<a href="${listing.website}" style="color:#0356A6;">${listing.website}</a>` : "N/A")}
-            ${row("LinkedIn", listing.linkedinUrl ? `<a href="${listing.linkedinUrl}" style="color:#0356A6;">${listing.linkedinUrl}</a>` : "N/A")}
-            ${row("Founded Year", listing.foundedYear || "N/A")}
-            ${row("Company Size", listing.companySize || "N/A")}
-            ${row("Phone", listing.phone || "N/A")}
-            ${row("Main Office Address", listing.mainOfficeAddress || "N/A")}
-            ${row("Requested City", `<strong style="color:#0356A6;">${listing.requestedCity || "N/A"}</strong>`)}
-            ${row("Requested Country", `<strong style="color:#0356A6;">${listing.requestedCountry || "N/A"}</strong>`)}
-            ${row("Vertical Focus", listing.verticalFocus || "N/A")}
+            ${safeUrl(listing.logoUrl) ? `<p style="margin:0 0 12px;"><img src="${L.logoUrl}" alt="logo" style="max-height:60px;max-width:160px;border:1px solid #e2e8f0;padding:4px;" /></p>` : ""}
+            ${row("Company Name", L.companyName)}
+            ${row("Website", websiteHref ? `<a href="${L.website}" style="color:#0356A6;">${L.website}</a>` : (L.website || "N/A"))}
+            ${row("LinkedIn", linkedinHref ? `<a href="${L.linkedinUrl}" style="color:#0356A6;">${L.linkedinUrl}</a>` : (L.linkedinUrl || "N/A"))}
+            ${row("Founded Year", L.foundedYear || "N/A")}
+            ${row("Company Size", L.companySize || "N/A")}
+            ${row("Phone", L.phone || "N/A")}
+            ${row("Main Office Address", L.mainOfficeAddress || "N/A")}
+            ${row("Requested City", `<strong style="color:#0356A6;">${L.requestedCity || "N/A"}</strong>`)}
+            ${row("Requested Country", `<strong style="color:#0356A6;">${L.requestedCountry || "N/A"}</strong>`)}
+            ${row("Vertical Focus", L.verticalFocus || "N/A")}
           </td>
         </tr>
 
-        ${listing.companyDescription ? `
+        ${L.companyDescription ? `
         <tr><td style="padding:0 32px 8px;">
           <h2 style="margin:0 0 8px;color:#0F1C36;font-size:16px;border-bottom:2px solid #0356A6;padding-bottom:8px;">📝 Description</h2>
-          <p style="margin:0;color:#374151;font-size:13px;line-height:1.6;">${listing.companyDescription}</p>
+          <p style="margin:0;color:#374151;font-size:13px;line-height:1.6;">${L.companyDescription}</p>
         </td></tr>` : ""}
 
         <!-- Certifications -->
-        ${listing.certifications?.length > 0 ? `
+        ${L.certifications?.length > 0 ? `
         <tr><td style="padding:0 32px 8px;">
           <h2 style="margin:16px 0 8px;color:#0F1C36;font-size:16px;border-bottom:2px solid #0356A6;padding-bottom:8px;">🏅 Certifications</h2>
-          <p style="margin:0;color:#374151;font-size:13px;">${listing.certifications.join(" &nbsp;•&nbsp; ")}</p>
+          <p style="margin:0;color:#374151;font-size:13px;">${L.certifications.join(" &nbsp;•&nbsp; ")}</p>
         </td></tr>` : ""}
 
         <!-- Services -->
-        ${listing.services?.length > 0 ? `
+        ${L.services?.length > 0 ? `
         <tr><td style="padding:0 32px 8px;">
           <h2 style="margin:16px 0 8px;color:#0F1C36;font-size:16px;border-bottom:2px solid #0356A6;padding-bottom:8px;">⚙️ Services</h2>
-          <p style="margin:0;color:#374151;font-size:13px;line-height:1.8;">${listing.services.map(s => `<span style="background:#eff6ff;border:1px solid #bfdbfe;padding:2px 8px;margin:2px;display:inline-block;font-size:12px;color:#1d4ed8;">${s}</span>`).join(" ")}</p>
+          <p style="margin:0;color:#374151;font-size:13px;line-height:1.8;">${L.services.map(s => `<span style="background:#eff6ff;border:1px solid #bfdbfe;padding:2px 8px;margin:2px;display:inline-block;font-size:12px;color:#1d4ed8;">${s}</span>`).join(" ")}</p>
         </td></tr>` : ""}
 
         <!-- Partners -->
-        ${listing.partners?.length > 0 ? `
+        ${L.partners?.length > 0 ? `
         <tr><td style="padding:0 32px 8px;">
           <h2 style="margin:16px 0 8px;color:#0F1C36;font-size:16px;border-bottom:2px solid #0356A6;padding-bottom:8px;">🤝 Partners</h2>
-          <p style="margin:0;color:#374151;font-size:13px;line-height:1.8;">${listing.partners.map(p => `<span style="background:#f1f5f9;border:1px solid #e2e8f0;padding:2px 8px;margin:2px;display:inline-block;font-size:12px;color:#475569;">${p}</span>`).join(" ")}</p>
+          <p style="margin:0;color:#374151;font-size:13px;line-height:1.8;">${L.partners.map(p => `<span style="background:#f1f5f9;border:1px solid #e2e8f0;padding:2px 8px;margin:2px;display:inline-block;font-size:12px;color:#475569;">${p}</span>`).join(" ")}</p>
         </td></tr>` : ""}
 
         <!-- Contact Person -->
         <tr><td style="padding:0 32px 8px;">
           <h2 style="margin:16px 0 8px;color:#0F1C36;font-size:16px;border-bottom:2px solid #0356A6;padding-bottom:8px;">👤 Contact Person (Private)</h2>
-          ${row("Full Name", listing.fullName || "N/A")}
-          ${row("Person of Contact", listing.personOfContact || "N/A")}
-          ${row("Job Title", listing.jobTitle || "N/A")}
-          ${row("Email", `<a href="mailto:${listing.contactEmail}" style="color:#0356A6;">${listing.contactEmail}</a>`)}
-          ${listing.note ? row("Note", listing.note) : ""}
+          ${row("Full Name", L.fullName || "N/A")}
+          ${row("Person of Contact", L.personOfContact || "N/A")}
+          ${row("Job Title", L.jobTitle || "N/A")}
+          ${row("Email", `<a href="mailto:${L.contactEmail}" style="color:#0356A6;">${L.contactEmail}</a>`)}
+          ${L.note ? row("Note", L.note) : ""}
         </td></tr>
 
         <!-- CTA -->

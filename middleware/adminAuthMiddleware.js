@@ -30,26 +30,35 @@ exports.adminAuthMiddleware = async (req, res, next) => {
       });
     }
 
-    // Attach user to request object
+    // Attach user to request object (role comes from the DB, not the token,
+    // so a role change takes effect immediately)
     req.user = {
       userId: user._id,
       email: user.email,
-      role: user.role
+      role: user.role || "admin"
     };
 
     next();
   } catch (error) {
     console.error("Admin auth middleware error:", error);
-    if (error.name === "JsonWebTokenError") {
+    if (error.name === "JsonWebTokenError" || error.name === "TokenExpiredError") {
       return res.status(401).json({
         ok: false,
-        message: "Invalid token."
+        message: "Invalid or expired token."
       });
     }
-    
+
     return res.status(500).json({
       ok: false,
       message: "Server error during authentication."
     });
   }
 }
+
+// Use after adminAuthMiddleware. e.g. router.get("/x", adminAuthMiddleware, requireRole("admin"), handler)
+exports.requireRole = (...roles) => (req, res, next) => {
+  if (!req.user || !roles.includes(req.user.role)) {
+    return res.status(403).json({ ok: false, message: "You do not have permission to perform this action." });
+  }
+  next();
+};

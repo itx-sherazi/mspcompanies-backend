@@ -8,6 +8,10 @@ exports.signin = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
+    if (typeof email !== "string" || !email.trim() || typeof password !== "string" || password.length < 8) {
+      return res.status(400).json({ ok: false, message: "Email and a password of at least 8 characters are required" });
+    }
+
     const existingUser = await AdminUser.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ ok: false, message: "User already exists" });
@@ -34,15 +38,18 @@ exports.signin = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    
+    if (typeof email !== "string" || typeof password !== "string") {
+      return res.status(400).json({ ok: false, message: "Invalid email or password" });
+    }
+
     const user = await AdminUser.findOne({ email });
     if (!user) {
       return res.status(400).json({ ok: false, message: "Invalid email or password" });
     }
 
-    // Since earlier passwords might not be hashed, we handle both
-    const isMatch = await bcrypt.compare(password, user.password).catch(() => false);
-    if (!isMatch && password !== user.password) {
+    // bcrypt only. Legacy plaintext passwords are converted by scripts/hash-legacy-passwords.js
+    const isMatch = await bcrypt.compare(password, user.password || "").catch(() => false);
+    if (!isMatch) {
       return res.status(400).json({ ok: false, message: "Invalid email or password" });
     }
 

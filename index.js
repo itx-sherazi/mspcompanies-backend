@@ -1,59 +1,10 @@
-const express = require("express");
 const dotenv = require("dotenv");
-const cors = require("cors");
-const cookieParser = require("cookie-parser");
-const connectDB = require("./config/db");
-
 dotenv.config();
+
+const connectDB = require("./config/db");
+const app = require("./app");
+
 connectDB();
-
-const app = express();
-
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://localhost:3002",
-  "http://localhost:3005",
-  "https://mspcompanies.us",
-  "https://www.mspcompanies.us",
-  "https://dashboard.mspcompanies.us",
-  "https://api.mspcompanies.us",
-  "https://*.mspcompanies.us",
-  "https://mspcompanies-dashboard.vercel.app",
-  "https://www.mspcompanies-dashboard.vercel.app",
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) callback(null, true);
-    else callback(new Error("Not allowed by CORS"));
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-}));
-app.options(/(.*)/, cors());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
-app.use(cookieParser());
-
-app.get("/", (req, res) => {
-  res.send("MSP Companies API v1.0 - Running");
-});
-
-app.use("/api/v1", require("./router/userRoutes"));
-app.use("/api/v1", require("./router/cityRoutes"));
-app.use("/api/v1", require("./router/blogRoutes"));
-app.use("/api/v1", require("./router/emailRoutes"));
-app.use("/api/v1", require("./router/dataRequestRoutes"));
-app.use("/api/v1", require("./router/listingRequestRoutes"));
-app.use("/api/v1", require("./router/ServiceRoute"));
-app.use("/api/v1", require("./router/CompanyTeamRoute"));
-app.use("/api/v1", require("./router/managedItRoutes"));
-app.use("/api/v1", require("./router/cyberSecurityRoutes"));
-app.use("/api/v1/vendors",          require("./router/vendorRoutes"));
-app.use("/api/v1/categories",       require("./router/categoryRoutes"));
-app.use("/api/v1/parent-categories", require("./router/parentCategoryRoutes"));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

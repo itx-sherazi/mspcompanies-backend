@@ -1,5 +1,7 @@
 const Vendor = require("../models/Vendor");
 const cloudinary = require("../config/cloudinary");
+const { escapeRegex, queryString } = require("../utils/escapeRegex");
+const { revalidateFrontend } = require("../utils/revalidateFrontend");
 
 function parseCSV(val) {
   if (Array.isArray(val)) return val.map((s) => String(s).trim()).filter(Boolean);
@@ -31,17 +33,6 @@ function cleanStr(val) {
   return String(val || "").trim().replace(/^'+/, "").replace(/'+$/, "");
 }
 
-async function revalidateFrontend(paths = []) {
-  try {
-    const base   = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
-    const secret = process.env.REVALIDATE_SECRET || "";
-    await fetch(`${base}/api/revalidate?secret=${secret}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paths }),
-    });
-  } catch (_) {}
-}
 
 const VENDOR_LIST_FIELDS =
   "slug name description logoUrl hq website groups categories pageCount mspPartnerProgram pricingModel companySize founded";
@@ -49,23 +40,27 @@ const VENDOR_LIST_FIELDS =
 // GET /api/v1/vendors?category=rmm-software&limit=10&fields=list
 exports.getVendors = async (req, res) => {
   try {
-    const { category, group, search, limit = 50, page = 1, fields } = req.query;
+    const category = queryString(req.query.category);
+    const group    = queryString(req.query.group);
+    const search   = queryString(req.query.search);
+    const fields   = queryString(req.query.fields);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
     const filter = {};
     if (category) filter.categories = category;
     if (group) filter.groups = group;
-    if (search) filter.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { slug: { $regex: search, $options: "i" } },
-      { description: { $regex: search, $options: "i" } },
-    ];
+    if (search) {
+      const re = new RegExp(escapeRegex(search), "i");
+      filter.$or = [{ name: re }, { slug: re }, { description: re }];
+    }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (page - 1) * limit;
     const listMode = String(fields || "").toLowerCase() === "list";
     const [vendors, total] = await Promise.all([
       Vendor.find(filter)
         .sort({ pageCount: -1, name: 1 })
         .skip(skip)
-        .limit(parseInt(limit))
+        .limit(limit)
         .select(listMode ? VENDOR_LIST_FIELDS : "-__v")
         .lean(),
       Vendor.countDocuments(filter),
@@ -78,7 +73,7 @@ exports.getVendors = async (req, res) => {
         }))
       : vendors;
 
-    res.json({ ok: true, data, total, page: parseInt(page), limit: parseInt(limit) });
+    res.json({ ok: true, data, total, page, limit });
   } catch (err) {
     console.error("getVendors error:", err);
     res.status(500).json({ ok: false, error: "Server error" });
@@ -201,7 +196,7 @@ exports.deleteVendor = async (req, res) => {
 // GET /api/v1/vendors/by-slugs?slugs=ninjaone,veeam,atera
 exports.getVendorsBySlugs = async (req, res) => {
   try {
-    const slugs = (req.query.slugs || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const slugs = queryString(req.query.slugs).split(",").map((s) => s.trim()).filter(Boolean).slice(0, 100);
     if (!slugs.length) return res.json({ ok: true, data: [] });
     const vendors = await Vendor.find({ slug: { $in: slugs } }).select("-__v");
     // return in same order as requested slugs

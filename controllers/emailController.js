@@ -1,5 +1,6 @@
 const { Resend } = require("resend");
   const DataRequest = require("../models/DataRequest");
+const { escapeHtml, cleanSubject, isValidEmail, firstTooLong } = require("../utils/emailSafety");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -10,8 +11,11 @@ const FROM_EMAIL  = "MSP Companies <info@mspcompanies.us>";
 exports.leadPopup = async (req, res) => {
   const { email, pagePath, pageTitle, leadChannel, ctaLabel, referenceDetail } = req.body;
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!isValidEmail(email)) {
     return res.status(400).json({ error: "Valid email is required" });
+  }
+  if (firstTooLong(req.body, { pagePath: 500, pageTitle: 300, leadChannel: 100, ctaLabel: 200, referenceDetail: 500 })) {
+    return res.status(400).json({ error: "Invalid input" });
   }
 
   try {
@@ -33,17 +37,17 @@ exports.leadPopup = async (req, res) => {
     await resend.emails.send({
       from: FROM_EMAIL,
       to: ADMIN_EMAIL,
-      subject: `New Lead: ${email} ${pagePath || "/"}`,
+      subject: cleanSubject(`New Lead: ${email} ${pagePath || "/"}`),
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <h2 style="color:#0356A6;border-bottom:2px solid #0356A6;padding-bottom:8px">New Lead Popup Submission</h2>
           <table style="width:100%;border-collapse:collapse">
-            <tr><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px">${email}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Page:</td><td style="padding:8px">${pagePath || "/"}</td></tr>
-            <tr><td style="padding:8px;font-weight:bold;color:#555">Page Title:</td><td style="padding:8px">${pageTitle || "N/A"}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Channel:</td><td style="padding:8px">${leadChannel || "auto_popup"}</td></tr>
-            ${ctaLabel ? `<tr><td style="padding:8px;font-weight:bold;color:#555">CTA:</td><td style="padding:8px">${ctaLabel}</td></tr>` : ""}
-            ${referenceDetail ? `<tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Reference:</td><td style="padding:8px">${referenceDetail}</td></tr>` : ""}
+            <tr><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px">${escapeHtml(email)}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Page:</td><td style="padding:8px">${escapeHtml(pagePath || "/")}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555">Page Title:</td><td style="padding:8px">${escapeHtml(pageTitle || "N/A")}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Channel:</td><td style="padding:8px">${escapeHtml(leadChannel || "auto_popup")}</td></tr>
+            ${ctaLabel ? `<tr><td style="padding:8px;font-weight:bold;color:#555">CTA:</td><td style="padding:8px">${escapeHtml(ctaLabel)}</td></tr>` : ""}
+            ${referenceDetail ? `<tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Reference:</td><td style="padding:8px">${escapeHtml(referenceDetail)}</td></tr>` : ""}
           </table>
         </div>
       `,
@@ -87,6 +91,12 @@ exports.contactForm = async (req, res) => {
   if (!firstName || !email || !message) {
     return res.status(400).json({ error: "First name, email and message are required" });
   }
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: "Valid email is required" });
+  }
+  if (firstTooLong(req.body, { firstName: 100, lastName: 100, phone: 50, service: 200, subject: 200, message: 5000 })) {
+    return res.status(400).json({ error: "One or more fields are too long" });
+  }
 
   try {
     // Save to Database
@@ -107,17 +117,17 @@ exports.contactForm = async (req, res) => {
     await resend.emails.send({
       from: FROM_EMAIL,
       to: ADMIN_EMAIL,
-      subject: `Contact Form: ${subject || "New Enquiry"} - ${firstName} ${lastName || ""}`,
+      subject: cleanSubject(`Contact Form: ${subject || "New Enquiry"} - ${firstName} ${lastName || ""}`),
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <h2 style="color:#0356A6;border-bottom:2px solid #0356A6;padding-bottom:8px">New Contact Form Submission</h2>
           <table style="width:100%;border-collapse:collapse">
-            <tr><td style="padding:8px;font-weight:bold;color:#555;width:140px">Name:</td><td style="padding:8px">${firstName} ${lastName || ""}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px"><a href="mailto:${email}">${email}</a></td></tr>
-            <tr><td style="padding:8px;font-weight:bold;color:#555">Phone:</td><td style="padding:8px">${phone || "Not provided"}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Service:</td><td style="padding:8px">${service || "Not specified"}</td></tr>
-            <tr><td style="padding:8px;font-weight:bold;color:#555">Subject:</td><td style="padding:8px">${subject || "N/A"}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555;vertical-align:top">Message:</td><td style="padding:8px;white-space:pre-wrap">${message}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555;width:140px">Name:</td><td style="padding:8px">${escapeHtml(firstName)} ${escapeHtml(lastName || "")}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px"><a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555">Phone:</td><td style="padding:8px">${escapeHtml(phone || "Not provided")}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Service:</td><td style="padding:8px">${escapeHtml(service || "Not specified")}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555">Subject:</td><td style="padding:8px">${escapeHtml(subject || "N/A")}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555;vertical-align:top">Message:</td><td style="padding:8px;white-space:pre-wrap">${escapeHtml(message)}</td></tr>
           </table>
         </div>
       `,
@@ -161,6 +171,12 @@ exports.bookACall = async (req, res) => {
   if (!firstName || !email) {
     return res.status(400).json({ error: "First name and email are required" });
   }
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: "Valid email is required" });
+  }
+  if (firstTooLong(req.body, { firstName: 100, lastName: 100, phone: 50, service: 200, subject: 200, message: 5000 })) {
+    return res.status(400).json({ error: "One or more fields are too long" });
+  }
 
   const fullName = `${firstName} ${lastName || ""}`.trim();
 
@@ -183,16 +199,16 @@ exports.bookACall = async (req, res) => {
     await resend.emails.send({
       from: FROM_EMAIL,
       to: ADMIN_EMAIL,
-      subject: `Book a Call Request: ${service || "MSP Services"} ${fullName}`,
+      subject: cleanSubject(`Book a Call Request: ${service || "MSP Services"} ${fullName}`),
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <h2 style="color:#0356A6;border-bottom:2px solid #0356A6;padding-bottom:8px">New Book a Call Request services-for-msps</h2>
           <table style="width:100%;border-collapse:collapse">
-            <tr><td style="padding:8px;font-weight:bold;color:#555;width:140px">Name:</td><td style="padding:8px">${fullName}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px"><a href="mailto:${email}">${email}</a></td></tr>
-            <tr><td style="padding:8px;font-weight:bold;color:#555">Phone:</td><td style="padding:8px">${phone || "Not provided"}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Service:</td><td style="padding:8px">${service || "Not specified"}</td></tr>
-            <tr><td style="padding:8px;font-weight:bold;color:#555;vertical-align:top">Message:</td><td style="padding:8px;white-space:pre-wrap">${message || "No message provided"}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555;width:140px">Name:</td><td style="padding:8px">${escapeHtml(fullName)}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px"><a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555">Phone:</td><td style="padding:8px">${escapeHtml(phone || "Not provided")}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Service:</td><td style="padding:8px">${escapeHtml(service || "Not specified")}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555;vertical-align:top">Message:</td><td style="padding:8px;white-space:pre-wrap">${escapeHtml(message || "No message provided")}</td></tr>
           </table>
         </div>
       `,
@@ -245,6 +261,12 @@ exports.emailListForm = async (req, res) => {
   if (!firstName || !email || !message) {
     return res.status(400).json({ error: "First name, email and message are required" });
   }
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: "Valid email is required" });
+  }
+  if (firstTooLong(req.body, { firstName: 100, lastName: 100, phone: 50, service: 200, subject: 200, message: 5000 })) {
+    return res.status(400).json({ error: "One or more fields are too long" });
+  }
 
   try {
     // Save to Database
@@ -265,17 +287,17 @@ exports.emailListForm = async (req, res) => {
     await resend.emails.send({
       from: FROM_EMAIL,
       to: ADMIN_EMAIL,
-      subject: `Email List Request: ${subject || "New Request"} - ${firstName} ${lastName || ""}`,
+      subject: cleanSubject(`Email List Request: ${subject || "New Request"} - ${firstName} ${lastName || ""}`),
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <h2 style="color:#0356A6;border-bottom:2px solid #0356A6;padding-bottom:8px">New Email List Request</h2>
           <table style="width:100%;border-collapse:collapse">
-            <tr><td style="padding:8px;font-weight:bold;color:#555;width:140px">Name:</td><td style="padding:8px">${firstName} ${lastName || ""}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px"><a href="mailto:${email}">${email}</a></td></tr>
-            <tr><td style="padding:8px;font-weight:bold;color:#555">Phone:</td><td style="padding:8px">${phone || "Not provided"}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Service:</td><td style="padding:8px">${service || "Not specified"}</td></tr>
-            <tr><td style="padding:8px;font-weight:bold;color:#555">Subject:</td><td style="padding:8px">${subject || "N/A"}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555;vertical-align:top">Message:</td><td style="padding:8px;white-space:pre-wrap">${message}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555;width:140px">Name:</td><td style="padding:8px">${escapeHtml(firstName)} ${escapeHtml(lastName || "")}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Email:</td><td style="padding:8px"><a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555">Phone:</td><td style="padding:8px">${escapeHtml(phone || "Not provided")}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555">Service:</td><td style="padding:8px">${escapeHtml(service || "Not specified")}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;color:#555">Subject:</td><td style="padding:8px">${escapeHtml(subject || "N/A")}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:bold;color:#555;vertical-align:top">Message:</td><td style="padding:8px;white-space:pre-wrap">${escapeHtml(message)}</td></tr>
           </table>
         </div>
       `,

@@ -1,5 +1,6 @@
 const Blog = require("../models/Blog");
 const cloudinary = require("../config/cloudinary");
+const { cleanHtml } = require("../utils/sanitizeHtml");
 
 async function uploadToCloudinary(buffer, mimetype) {
   return new Promise((resolve, reject) => {
@@ -44,7 +45,7 @@ exports.createBlog = async (req, res) => {
     const blog = await Blog.create({
       title,
       slug,
-      body: body || "",
+      body: cleanHtml(body || ""),
       image: imageUrl,
       category: category || "General",
       tags: parsedTags,
@@ -95,7 +96,7 @@ exports.updateBlog = async (req, res) => {
 
     blog.title = title || blog.title;
     blog.slug = slug || blog.slug;
-    blog.body = body !== undefined ? body : blog.body;
+    blog.body = body !== undefined ? cleanHtml(body) : blog.body;
     blog.image = imageUrl;
     blog.category = category || blog.category;
     blog.tags = parsedTags;

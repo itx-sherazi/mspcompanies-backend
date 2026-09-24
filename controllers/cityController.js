@@ -5,6 +5,9 @@ const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
 const cloudinary = require("../config/cloudinary.js");
 const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcategory.js");
+const { cleanHtml } = require("../utils/sanitizeHtml");
+const { revalidateFrontend } = require("../utils/revalidateFrontend");
+const { escapeRegex } = require("../utils/escapeRegex");
 
 const HUB_MANAGED_IT = "managed-service-providers";
 const HUB_TOP_MSPS = "top-msps";
@@ -17,19 +20,6 @@ function hubBasePath(hubSlug) {
   return "/msp";
 }
 
-async function revalidateFrontend(paths = ["/msp"]) {
-  try {
-    const base = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
-    const secret = process.env.REVALIDATE_SECRET || "";
-    await fetch(`${base}/api/revalidate?secret=${secret}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paths }),
-    });
-  } catch (_) {
-    // non-blocking revalidation failure should not break the API response
-  }
-}
 
 function normalizeCityFaqs(input) {
   if (!Array.isArray(input)) return [];
@@ -659,7 +649,7 @@ exports.createCity = async (req, res) => {
       heading: String(heading).trim(),
       metaTitle: metaTitle.trim(),
       metaDescription: metaDescription.trim(),
-      content: typeof content === "string" ? content : "",
+      content: typeof content === "string" ? cleanHtml(content) : "",
       faqs: normalizeCityFaqs(faqs),
       hubCompanies: [],
     });
@@ -745,7 +735,7 @@ exports.updateCity = async (req, res) => {
     }
 
     if (req.body.content !== undefined) {
-      city.content = typeof req.body.content === "string" ? req.body.content : "";
+      city.content = typeof req.body.content === "string" ? cleanHtml(req.body.content) : "";
     }
     if (req.body.faqs !== undefined) {
       city.faqs = normalizeCityFaqs(req.body.faqs);
@@ -1089,7 +1079,7 @@ exports.searchCompanies = async (req, res) => {
       .select("slug name hubCompanies")
       .lean();
 
-    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const regex = new RegExp(escapeRegex(q), "i");
     const matches = [];
 
     for (const city of cities) {
@@ -1141,7 +1131,7 @@ exports.findPublishedMspCity = async (slugOrName, fallbackName) => {
   }
 
   if (name) {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = escapeRegex(name);
     const byName = await City.findOne({
       hubSlug: HUB_MANAGED_IT,
       isPublished: true,
@@ -1168,7 +1158,7 @@ exports.findPublishedMspCountry = async (slugOrName, fallbackName) => {
   }
 
   if (name) {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = escapeRegex(name);
     const byName = await City.findOne({
       hubSlug: HUB_TOP_MSPS,
       isPublished: true,

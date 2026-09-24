@@ -1,6 +1,7 @@
 const xlsx = require("xlsx");
 const ManagedItCompany = require("../models/ManagedItCompany");
 const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcategory");
+const { escapeRegex, queryString } = require("../utils/escapeRegex");
 
 function uniqueSlug(companyName, usedSlugs) {
   const base = createSafeSlug(companyName);
@@ -64,45 +65,45 @@ exports.listCompanies = async (req, res) => {
     const skip  = (page - 1) * limit;
 
     const filter = { isPublished: true };
-    if (req.query.state) filter.companyState = { $regex: new RegExp(`^${req.query.state.trim()}$`, "i") };
+    if (req.query.state) filter.companyState = { $regex: new RegExp(`^${escapeRegex(queryString(req.query.state))}$`, "i") };
 
     // city search  matches city, state, OR country
     if (req.query.city) {
-      const cityRe = new RegExp(req.query.city.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const cityRe = new RegExp(escapeRegex(queryString(req.query.city)), "i");
       filter.$and = filter.$and || [];
       filter.$and.push({ $or: [{ companyCity: cityRe }, { companyState: cityRe }, { companyCountry: cityRe }] });
     }
 
-    if (req.query.industry) filter.industry = { $regex: new RegExp(req.query.industry.trim(), "i") };
+    if (req.query.industry) filter.industry = { $regex: new RegExp(escapeRegex(queryString(req.query.industry)), "i") };
 
     // services  comma-separated multiple values (AND logic: must have all)
     if (req.query.service) {
-      const svcs = req.query.service.split(",").map((s) => s.trim()).filter(Boolean);
+      const svcs = queryString(req.query.service).split(",").map((s) => s.trim()).filter(Boolean);
       if (svcs.length === 1) {
-        filter.companyServices = { $elemMatch: { $regex: new RegExp(svcs[0], "i") } };
+        filter.companyServices = { $elemMatch: { $regex: new RegExp(escapeRegex(svcs[0]), "i") } };
       } else if (svcs.length > 1) {
         filter.$and = filter.$and || [];
         svcs.forEach((s) => {
-          filter.$and.push({ companyServices: { $elemMatch: { $regex: new RegExp(s, "i") } } });
+          filter.$and.push({ companyServices: { $elemMatch: { $regex: new RegExp(escapeRegex(s), "i") } } });
         });
       }
     }
 
     // partners  comma-separated multiple values (AND logic: must have all)
     if (req.query.partner) {
-      const prts = req.query.partner.split(",").map((p) => p.trim()).filter(Boolean);
+      const prts = queryString(req.query.partner).split(",").map((p) => p.trim()).filter(Boolean);
       if (prts.length === 1) {
-        filter.companyPartners = { $elemMatch: { $regex: new RegExp(prts[0], "i") } };
+        filter.companyPartners = { $elemMatch: { $regex: new RegExp(escapeRegex(prts[0]), "i") } };
       } else if (prts.length > 1) {
         filter.$and = filter.$and || [];
         prts.forEach((p) => {
-          filter.$and.push({ companyPartners: { $elemMatch: { $regex: new RegExp(p, "i") } } });
+          filter.$and.push({ companyPartners: { $elemMatch: { $regex: new RegExp(escapeRegex(p), "i") } } });
         });
       }
     }
 
     if (req.query.q) {
-      const re = new RegExp(req.query.q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const re = new RegExp(escapeRegex(queryString(req.query.q)), "i");
       filter.$or = [{ companyName: re }, { description: re }, { keywords: re }];
     }
 
@@ -339,7 +340,7 @@ exports.listAdmin = async (req, res) => {
     const skip  = (page - 1) * limit;
     const filter = {};
     if (req.query.q) {
-      const re = new RegExp(req.query.q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const re = new RegExp(escapeRegex(queryString(req.query.q)), "i");
       filter.$or = [{ companyName: re }, { companyCity: re }, { companyState: re }];
     }
     const [total, data] = await Promise.all([

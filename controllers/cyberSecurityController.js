@@ -1,6 +1,7 @@
 const xlsx = require("xlsx");
 const CyberSecurityCompany = require("../models/CyberSecurityCompany");
 const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcategory");
+const { escapeRegex, queryString } = require("../utils/escapeRegex");
 
 function uniqueSlug(companyName, usedSlugs) {
   const base = createSafeSlug(companyName);
@@ -54,30 +55,30 @@ exports.listCompanies = async (req, res) => {
     const skip  = (page - 1) * limit;
 
     const filter = { isPublished: true };
-    if (req.query.state) filter.companyState = { $regex: new RegExp(`^${req.query.state.trim()}$`, "i") };
+    if (req.query.state) filter.companyState = { $regex: new RegExp(`^${escapeRegex(queryString(req.query.state))}$`, "i") };
 
     if (req.query.city) {
-      const cityRe = new RegExp(req.query.city.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const cityRe = new RegExp(escapeRegex(queryString(req.query.city)), "i");
       filter.$and = filter.$and || [];
       filter.$and.push({ $or: [{ companyCity: cityRe }, { companyState: cityRe }, { companyCountry: cityRe }] });
     }
 
     if (req.query.industry) {
-      const inds = req.query.industry.split(",").map((i) => i.trim()).filter(Boolean);
+      const inds = queryString(req.query.industry).split(",").map((i) => i.trim()).filter(Boolean);
       if (inds.length === 1) {
-        filter.industry = { $regex: new RegExp(inds[0], "i") };
+        filter.industry = { $regex: new RegExp(escapeRegex(inds[0]), "i") };
       } else if (inds.length > 1) {
         filter.$and = filter.$and || [];
-        filter.$and.push({ $or: inds.map((i) => ({ industry: { $regex: new RegExp(i, "i") } })) });
+        filter.$and.push({ $or: inds.map((i) => ({ industry: { $regex: new RegExp(escapeRegex(i), "i") } })) });
       }
     }
 
     if (req.query.employees) {
-      filter.employees = { $regex: new RegExp(req.query.employees.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") };
+      filter.employees = { $regex: new RegExp(escapeRegex(queryString(req.query.employees)), "i") };
     }
 
     if (req.query.q) {
-      const re = new RegExp(req.query.q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const re = new RegExp(escapeRegex(queryString(req.query.q)), "i");
       filter.$or = [{ companyName: re }, { description: re }, { keywords: re }];
     }
 
@@ -242,7 +243,7 @@ exports.listAdmin = async (req, res) => {
     const skip  = (page - 1) * limit;
     const filter = {};
     if (req.query.q) {
-      const re = new RegExp(req.query.q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const re = new RegExp(escapeRegex(queryString(req.query.q)), "i");
       filter.$or = [{ companyName: re }, { companyCity: re }, { companyState: re }];
     }
     const [total, data] = await Promise.all([
