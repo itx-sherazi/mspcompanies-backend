@@ -33,13 +33,10 @@ const SCAN_FIELDS = [...TEXT_FIELDS, ...LIST_FIELDS];
 // Fields the dashboard may edit directly.
 const EDITABLE_FIELDS = ["companyName", "description", "linkedinUrl", "website"];
 
-// Cheap MongoDB-side pre-filter: every text findBadSequences flags matches this (superset),
-// so normal companies never leave the database. Built from real characters (not \u escapes)
-// because MongoDB's regex engine doesn't understand JS \u syntax.
-const CONT_CHARS = "\u0080-¿€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
-const SUSPECT_RE = new RegExp(
-  `[Â-ô][${CONT_CHARS}]|Â\\s|â€|[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F​-‍⁠﻿�]`,
-);
+// Cheap MongoDB-side pre-filter: anything that isn't plain printable ASCII (every bad
+// sequence contains such a character). Only \x escapes, which every MongoDB regex engine
+// understands; the exact check happens in Node with findBadSequences.
+const SUSPECT_RE = /[^\x09\x0A\x0D\x20-\x7E]/;
 const suspectMatch = (prefix = "") => ({ $or: SCAN_FIELDS.map((f) => ({ [`${prefix}${f}`]: SUSPECT_RE })) });
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -116,7 +113,7 @@ async function hubRows({ match = {}, companyMatch = null, fields }) {
   for (const [f, expr] of Object.entries(fields)) shaped[f] = expr === 1 ? `$hubCompanies.${f}` : expr("$hubCompanies.");
   pipeline.push({ $project: shaped });
 
-  const docs = await City.aggregate(pipeline).allowDiskUse(true);
+  const docs = await City.aggregate(pipeline);
   return docs.map((d) => ({ ...d, source: `hub:${d.hubSlug}`, id: `${d.cityId}:${d.slug}` }));
 }
 
@@ -152,8 +149,22 @@ async function getBadScan(force = false) {
   if (!force && badCache && Date.now() - badCache.at < CACHE_TTL_MS) return badCache;
 
   const fields = Object.fromEntries(["slug", "linkedinUrl", "website", ...SCAN_FIELDS].map((f) => [f, 1]));
-  const [hubCandidates, cities, ...flat] = await Promise.all([
-    hubRows({ companyMatch: true, fields }),
+  // Pre-filtered in MongoDB; if that fails or finds nothing, scan everything so a
+  // database quirk can never hide bad characters.
+  const loadCandidates = async (prefilter) => Promise.all([
+    hubRows({ companyMatch: prefilter, fields }),
+    ...Object.keys(FLAT_SOURCES).map((key) => flatRows(key, { filter: prefilter ? suspectMatch() : {}, fields })),
+  ]);
+  let candidates;
+  try {
+    candidates = await loadCandidates(true);
+  } catch (err) {
+    console.error("company-quality pre-filter failed, scanning everything:", err.message);
+  }
+  if (!candidates || candidates.every((list) => list.length === 0)) candidates = await loadCandidates(false);
+  const [hubCandidates, ...flatCandidates] = candidates;
+
+  const [cities, ...flat] = await Promise.all([
     City.aggregate([
       {
         $project: {
@@ -168,12 +179,11 @@ async function getBadScan(force = false) {
     ...Object.keys(FLAT_SOURCES).map(async (key) => ({
       key,
       total: await FLAT_SOURCES[key].model.estimatedDocumentCount(),
-      rows: await flatRows(key, { filter: suspectMatch(), fields }),
     })),
   ]);
 
   const rows = [];
-  for (const row of [...hubCandidates, ...flat.flatMap((f) => f.rows)]) {
+  for (const row of [...hubCandidates, ...flatCandidates.flat()]) {
     const issues = scanRow(row);
     if (issues.length) rows.push({ ...row, issues, pageKey: pageKeyOf(row) });
   }

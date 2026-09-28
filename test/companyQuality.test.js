@@ -37,7 +37,7 @@ test("the MongoDB pre-filter never misses text that has bad characters", () => {
     assert.ok(findBadSequences(s).length > 0, `flagged: ${s}`);
     assert.ok(SUSPECT_RE.test(s), `pre-filter matches: ${s}`);
   }
-  assert.ok(!SUSPECT_RE.test("Plain English text – with “quotes” and 💬"));
+  assert.ok(!SUSPECT_RE.test("Plain English text - with \"quotes\"\nand lines"));
 });
 
 test("company names and LinkedIn URLs normalize for duplicate matching", () => {
