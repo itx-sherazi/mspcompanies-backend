@@ -1,6 +1,9 @@
 // Data-quality tools for company listings across every public source:
 // city/country hub companies (embedded in City), Managed IT and Cybersecurity directories.
 // Finds broken characters (mojibake) and duplicate companies, and edits / fixes / deletes them.
+//
+// Speed: MongoDB pre-filters with a cheap regex so only suspicious companies reach Node, and
+// scan results are cached for a few minutes (cleared on every edit / fix / delete).
 const mongoose = require("mongoose");
 const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
@@ -10,8 +13,8 @@ const { revalidateFrontend } = require("../utils/revalidateFrontend");
 
 const HUB_LABELS = {
   "managed-service-providers": "MSP city pages (/msp)",
-  "top-msps": "Top MSPs (/top-msps)",
-  "top-mssp": "Top MSSP (/top-mssp)",
+  "top-msps": "Top MSPs country pages (/top-msps)",
+  "top-mssp": "Top MSSP country pages (/top-mssp)",
 };
 const HUB_PATHS = {
   "managed-service-providers": "/msp",
@@ -19,8 +22,8 @@ const HUB_PATHS = {
   "top-mssp": "/top-mssp",
 };
 const FLAT_SOURCES = {
-  mit: { model: ManagedItCompany, label: "Managed IT (/managed-it-services)", path: "/managed-it-services" },
-  cyber: { model: CyberSecurityCompany, label: "Cybersecurity (/cybersecurity-companies)", path: "/cybersecurity-companies" },
+  mit: { model: ManagedItCompany, label: "Managed IT Services", path: "/managed-it-services" },
+  cyber: { model: CyberSecurityCompany, label: "Cybersecurity Companies", path: "/cybersecurity-companies" },
 };
 
 // Fields shown on the public site that we scan for bad characters.
@@ -29,6 +32,23 @@ const LIST_FIELDS = ["companyServices", "companyPartners", "keywords", "industry
 const SCAN_FIELDS = [...TEXT_FIELDS, ...LIST_FIELDS];
 // Fields the dashboard may edit directly.
 const EDITABLE_FIELDS = ["companyName", "description", "linkedinUrl", "website"];
+
+// Cheap MongoDB-side pre-filter: every text findBadSequences flags matches this (superset),
+// so normal companies never leave the database. Built from real characters (not \u escapes)
+// because MongoDB's regex engine doesn't understand JS \u syntax.
+const CONT_CHARS = "\u0080-¿€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
+const SUSPECT_RE = new RegExp(
+  `[Â-ô][${CONT_CHARS}]|Â\\s|â€|[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F​-‍⁠﻿�]`,
+);
+const suspectMatch = (prefix = "") => ({ $or: SCAN_FIELDS.map((f) => ({ [`${prefix}${f}`]: SUSPECT_RE })) });
+
+const CACHE_TTL_MS = 5 * 60 * 1000;
+let badCache = null; // { at, rows, pages }
+const dupCache = new Map(); // source -> { at, rows }
+function clearCaches() {
+  badCache = null;
+  dupCache.clear();
+}
 
 const NAME_SUFFIXES = /\b(inc|incorporated|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|pllc|plc|lp|llp|group)\b/g;
 
@@ -70,6 +90,9 @@ function publicPath(row) {
   return `${FLAT_SOURCES[row.source].path}/${row.slug}`;
 }
 
+/** The public page a company is listed on: "city:<cityId>" for hubs, "mit" / "cyber" otherwise. */
+const pageKeyOf = (row) => (row.cityId ? `city:${row.cityId}` : row.source);
+
 /** Sources the dashboard can filter by (hubs found in the DB + flat directories). */
 async function listSources() {
   const hubs = await City.distinct("hubSlug");
@@ -79,39 +102,29 @@ async function listSources() {
   ];
 }
 
-/**
- * Every company from the chosen source ("all", "hub:<hubSlug>", "mit", "cyber") as flat rows:
- * { source, id, cityId?, cityName?, citySlug?, slug, companyName, linkedinUrl, website, ...scan fields }
- */
-async function loadCompanies(source = "all") {
-  const rows = [];
-  const pick = ["slug", "companyName", "linkedinUrl", "website", ...SCAN_FIELDS];
+/** Hub companies as flat rows, via $unwind so MongoDB does the filtering. */
+async function hubRows({ match = {}, companyMatch = null, fields }) {
+  const project = { name: 1, slug: 1, hubSlug: 1 };
+  for (const f of Object.keys(fields)) project[`hubCompanies.${f}`] = 1;
+  const pipeline = [
+    { $match: { ...match, ...(companyMatch ? suspectMatch("hubCompanies.") : {}) } },
+    { $project: project },
+    { $unwind: "$hubCompanies" },
+  ];
+  if (companyMatch) pipeline.push({ $match: suspectMatch("hubCompanies.") });
+  const shaped = { _id: 0, cityId: { $toString: "$_id" }, cityName: "$name", citySlug: "$slug", hubSlug: 1 };
+  for (const [f, expr] of Object.entries(fields)) shaped[f] = expr === 1 ? `$hubCompanies.${f}` : expr("$hubCompanies.");
+  pipeline.push({ $project: shaped });
 
-  if (source === "all" || source.startsWith("hub:")) {
-    const match = source === "all" ? {} : { hubSlug: source.slice(4) };
-    const projection = { name: 1, slug: 1, hubSlug: 1 };
-    for (const f of pick) projection[`hubCompanies.${f}`] = 1;
-    const cities = await City.find(match).select(projection).lean();
-    for (const c of cities) {
-      for (const co of c.hubCompanies || []) {
-        rows.push({
-          ...co,
-          source: `hub:${c.hubSlug}`,
-          id: `${c._id}:${co.slug}`,
-          cityId: String(c._id),
-          cityName: c.name,
-          citySlug: c.slug,
-        });
-      }
-    }
-  }
+  const docs = await City.aggregate(pipeline).allowDiskUse(true);
+  return docs.map((d) => ({ ...d, source: `hub:${d.hubSlug}`, id: `${d.cityId}:${d.slug}` }));
+}
 
-  for (const [key, { model }] of Object.entries(FLAT_SOURCES)) {
-    if (source !== "all" && source !== key) continue;
-    const docs = await model.find({}).select(pick.join(" ")).lean();
-    for (const d of docs) rows.push({ ...d, source: key, id: String(d._id) });
-  }
-  return rows;
+async function flatRows(key, { filter = {}, fields }) {
+  const shaped = { _id: 0, id: { $toString: "$_id" } };
+  for (const [f, expr] of Object.entries(fields)) shaped[f] = expr === 1 ? `$${f}` : expr("$");
+  const docs = await FLAT_SOURCES[key].model.aggregate([{ $match: filter }, { $project: shaped }]);
+  return docs.map((d) => ({ ...d, source: key }));
 }
 
 /** [{ field, bad: ["â€“", ...], value, fixed }] for the fields that contain bad characters. */
@@ -129,6 +142,89 @@ function scanRow(row) {
     }
   }
   return issues;
+}
+
+/**
+ * Every company with bad characters (+ its issues), and every public page with its
+ * company count and bad count. Cached; `force` rescans.
+ */
+async function getBadScan(force = false) {
+  if (!force && badCache && Date.now() - badCache.at < CACHE_TTL_MS) return badCache;
+
+  const fields = Object.fromEntries(["slug", "linkedinUrl", "website", ...SCAN_FIELDS].map((f) => [f, 1]));
+  const [hubCandidates, cities, ...flat] = await Promise.all([
+    hubRows({ companyMatch: true, fields }),
+    City.aggregate([
+      {
+        $project: {
+          name: 1,
+          slug: 1,
+          hubSlug: 1,
+          isPublished: 1,
+          total: { $size: { $ifNull: ["$hubCompanies", []] } },
+        },
+      },
+    ]),
+    ...Object.keys(FLAT_SOURCES).map(async (key) => ({
+      key,
+      total: await FLAT_SOURCES[key].model.estimatedDocumentCount(),
+      rows: await flatRows(key, { filter: suspectMatch(), fields }),
+    })),
+  ]);
+
+  const rows = [];
+  for (const row of [...hubCandidates, ...flat.flatMap((f) => f.rows)]) {
+    const issues = scanRow(row);
+    if (issues.length) rows.push({ ...row, issues, pageKey: pageKeyOf(row) });
+  }
+
+  const badByPage = {};
+  for (const r of rows) badByPage[r.pageKey] = (badByPage[r.pageKey] || 0) + 1;
+
+  const pages = [
+    ...cities.map((c) => ({
+      key: `city:${c._id}`,
+      group: `hub:${c.hubSlug}`,
+      groupLabel: HUB_LABELS[c.hubSlug] || c.hubSlug,
+      name: c.name,
+      path: `${HUB_PATHS[c.hubSlug] || "/msp"}/${c.slug}`,
+      isPublished: Boolean(c.isPublished),
+      total: c.total,
+      bad: badByPage[`city:${c._id}`] || 0,
+    })),
+    ...flat.map((f) => ({
+      key: f.key,
+      group: f.key,
+      groupLabel: FLAT_SOURCES[f.key].label,
+      name: FLAT_SOURCES[f.key].label,
+      path: FLAT_SOURCES[f.key].path,
+      isPublished: true,
+      total: f.total,
+      bad: badByPage[f.key] || 0,
+    })),
+  ];
+
+  badCache = { at: Date.now(), rows, pages };
+  return badCache;
+}
+
+/** Lightweight rows for duplicate matching (description cut to a preview). Cached per source. */
+async function getDupRows(source, force = false) {
+  const hit = dupCache.get(source);
+  if (!force && hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.rows;
+
+  const preview = (p) => ({ $substrCP: [{ $ifNull: [`${p}description`, ""] }, 0, 240] });
+  const fields = { slug: 1, companyName: 1, linkedinUrl: 1, website: 1, description: preview };
+  const jobs = [];
+  if (source === "all" || source.startsWith("hub:")) {
+    jobs.push(hubRows({ match: source === "all" ? {} : { hubSlug: source.slice(4) }, fields }));
+  }
+  for (const key of Object.keys(FLAT_SOURCES)) {
+    if (source === "all" || source === key) jobs.push(flatRows(key, { fields }));
+  }
+  const rows = (await Promise.all(jobs)).flat();
+  dupCache.set(source, { at: Date.now(), rows });
+  return rows;
 }
 
 function summarize(row) {
@@ -179,22 +275,43 @@ exports.getSources = async (req, res) => {
 };
 
 /**
- * GET /admin/company-quality/bad-chars?source=all&field=description&char=â€“&q=&page=1&limit=25
- * Companies whose public text contains broken characters, plus a count per bad sequence.
+ * GET /admin/company-quality/pages?refresh=1
+ * Every public listing page (each city/country hub page, Managed IT, Cybersecurity)
+ * with how many of its companies have bad characters.
+ */
+exports.listPages = async (req, res) => {
+  try {
+    const scan = await getBadScan(req.query.refresh === "1");
+    res.json({
+      ok: true,
+      data: scan.pages,
+      totalBad: scan.rows.length,
+      scannedAt: new Date(scan.at).toISOString(),
+    });
+  } catch (err) {
+    console.error("listPages:", err);
+    res.status(500).json({ ok: false, message: "Server error" });
+  }
+};
+
+/**
+ * GET /admin/company-quality/bad-chars?target=city:<id>|mit|cyber&field=&char=&q=&page=1&limit=25
+ * Companies (on one page, or all pages when target is empty) whose text contains broken
+ * characters, plus a count per bad sequence.
  */
 exports.listBadChars = async (req, res) => {
   try {
-    const source = String(req.query.source || "all");
+    const target = String(req.query.target || "");
     const field = String(req.query.field || "");
     const char = String(req.query.char || "");
     const q = String(req.query.q || "").trim().toLowerCase();
 
-    const rows = await loadCompanies(source);
+    const { rows } = await getBadScan(req.query.refresh === "1");
     const flagged = [];
     const charCounts = {};
     for (const row of rows) {
-      let issues = scanRow(row);
-      if (field) issues = issues.filter((i) => i.field === field);
+      if (target && row.pageKey !== target) continue;
+      const issues = field ? row.issues.filter((i) => i.field === field) : row.issues;
       if (!issues.length) continue;
       const seqs = new Set(issues.flatMap((i) => i.bad));
       for (const s of seqs) charCounts[s] = (charCounts[s] || 0) + 1;
@@ -208,7 +325,7 @@ exports.listBadChars = async (req, res) => {
       .map(([seq, count]) => ({ seq, count, fixed: fixText(seq) }))
       .sort((a, b) => b.count - a.count);
 
-    res.json({ ok: true, ...paginate(flagged, req), chars, scanned: rows.length });
+    res.json({ ok: true, ...paginate(flagged, req), chars });
   } catch (err) {
     console.error("listBadChars:", err);
     res.status(500).json({ ok: false, message: "Server error" });
@@ -228,8 +345,11 @@ exports.listDuplicates = async (req, res) => {
     const by = ["name", "linkedin", "both"].includes(req.query.by) ? req.query.by : "name";
     const status = String(req.query.status || "");
     const q = String(req.query.q || "").trim().toLowerCase();
+    const force = req.query.refresh === "1";
 
-    const rows = await loadCompanies(source);
+    const [rows, bad] = await Promise.all([getDupRows(source, force), getBadScan(force)]);
+    const badIds = new Set(bad.rows.map((r) => r.id));
+
     const groups = new Map();
     for (const row of rows) {
       const n = normName(row.companyName);
@@ -259,20 +379,22 @@ exports.listDuplicates = async (req, res) => {
 
       if (status && status !== groupStatus) continue;
       if (q && !members.some((m) => matchesQuery(m, q))) continue;
-      out.push({
-        key,
-        status: groupStatus,
-        count: members.length,
-        companies: members
-          .map((m) => ({ ...summarize(m), badChars: scanRow(m).length > 0 }))
-          .sort((a, b) => a.sourceLabel.localeCompare(b.sourceLabel) || (a.cityName || "").localeCompare(b.cityName || "")),
-      });
+      out.push({ key, status: groupStatus, count: members.length, members });
     }
     out.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 
+    // Only shape the groups on the requested page.
+    const pageData = paginate(out, req);
+    pageData.data = pageData.data.map(({ members, ...g }) => ({
+      ...g,
+      companies: members
+        .map((m) => ({ ...summarize(m), badChars: badIds.has(m.id) }))
+        .sort((a, b) => a.sourceLabel.localeCompare(b.sourceLabel) || (a.cityName || "").localeCompare(b.cityName || "")),
+    }));
+
     res.json({
       ok: true,
-      ...paginate(out, req),
+      ...pageData,
       statusCounts,
       duplicateCompanies: out.reduce((n, g) => n + g.count, 0),
       scanned: rows.length,
@@ -352,6 +474,7 @@ exports.updateCompany = async (req, res) => {
     }
 
     await applyUpdate(t, set);
+    clearCaches();
     revalidateFrontend(pathsFor(t, loaded));
     res.json({ ok: true, message: "Company updated" });
   } catch (err) {
@@ -362,7 +485,7 @@ exports.updateCompany = async (req, res) => {
 
 /**
  * POST /admin/company-quality/fix  { items: [{ source, id }], removeEmoji?: boolean }
- *   or { all: true, source?, char? } to fix every flagged company (optionally only those with `char`).
+ *   or { all: true, target?, char? } to fix every flagged company (on one page, optionally only `char`).
  * Auto-repairs broken characters in every scanned field of each company.
  */
 exports.autoFix = async (req, res) => {
@@ -370,12 +493,10 @@ exports.autoFix = async (req, res) => {
     let items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : [];
     const removeEmoji = Boolean(req.body?.removeEmoji);
     if (req.body?.all) {
+      const target = String(req.body.target || "");
       const char = String(req.body.char || "");
-      items = (await loadCompanies(String(req.body.source || "all")))
-        .filter((row) => {
-          const issues = scanRow(row);
-          return issues.length && (!char || issues.some((i) => i.bad.includes(char)));
-        })
+      items = (await getBadScan(true)).rows
+        .filter((row) => (!target || row.pageKey === target) && (!char || row.issues.some((i) => i.bad.includes(char))))
         .map((row) => ({ source: row.source, id: row.id }));
     }
     if (!items.length) return res.status(400).json({ ok: false, message: "No companies selected" });
@@ -405,6 +526,7 @@ exports.autoFix = async (req, res) => {
       pathsFor(t, loaded).forEach((p) => paths.add(p));
       fixed += 1;
     }
+    clearCaches();
     revalidateFrontend([...paths]);
     res.json({ ok: true, fixed, message: `Fixed ${fixed} ${fixed === 1 ? "company" : "companies"}` });
   } catch (err) {
@@ -434,6 +556,7 @@ exports.deleteCompanies = async (req, res) => {
       pathsFor(t, loaded).forEach((p) => paths.add(p));
       deleted += 1;
     }
+    clearCaches();
     revalidateFrontend([...paths]);
     res.json({ ok: true, deleted, message: `Deleted ${deleted} ${deleted === 1 ? "company" : "companies"}` });
   } catch (err) {
@@ -444,3 +567,4 @@ exports.deleteCompanies = async (req, res) => {
 
 exports.normName = normName;
 exports.normLinkedin = normLinkedin;
+exports.SUSPECT_RE = SUSPECT_RE;

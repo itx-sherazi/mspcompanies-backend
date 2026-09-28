@@ -2,7 +2,7 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { startServer } = require("./helpers");
 const { fixText, findBadSequences } = require("../utils/badChars");
-const { normName, normLinkedin } = require("../controllers/companyQualityController");
+const { normName, normLinkedin, SUSPECT_RE } = require("../controllers/companyQualityController");
 
 let srv;
 before(async () => { srv = await startServer(); });
@@ -26,6 +26,18 @@ test("clean text is left alone", () => {
   const text = "São Paulo – Café 💬 “quoted”";
   assert.deepEqual(findBadSequences(text), []);
   assert.equal(fixText(text), text);
+});
+
+test("the MongoDB pre-filter never misses text that has bad characters", () => {
+  const samples = [
+    "Fast â€“ reliable", "ðŸ’¬ chat", "CafÃ©", "Acme Â IT", "quoteâ€ here", "Ac​me",
+    "x\u0081y", "bad � char", "ï¿½", "A Ã¢â‚¬â€œ B", "âœ” done",
+  ];
+  for (const s of samples) {
+    assert.ok(findBadSequences(s).length > 0, `flagged: ${s}`);
+    assert.ok(SUSPECT_RE.test(s), `pre-filter matches: ${s}`);
+  }
+  assert.ok(!SUSPECT_RE.test("Plain English text – with “quotes” and 💬"));
 });
 
 test("company names and LinkedIn URLs normalize for duplicate matching", () => {
