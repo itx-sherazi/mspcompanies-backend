@@ -64,6 +64,7 @@ app.use("/api/v1", require("./router/ServiceRoute"));
 app.use("/api/v1", require("./router/CompanyTeamRoute"));
 app.use("/api/v1", require("./router/managedItRoutes"));
 app.use("/api/v1", require("./router/cyberSecurityRoutes"));
+app.use("/api/v1", require("./router/companyQualityRoutes"));
 app.use("/api/v1/vendors",          require("./router/vendorRoutes"));
 app.use("/api/v1/categories",       require("./router/categoryRoutes"));
 app.use("/api/v1/parent-categories", require("./router/parentCategoryRoutes"));
