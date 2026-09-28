@@ -8,6 +8,7 @@ const {
   updateCompany,
   autoFix,
   deleteCompanies,
+  dedupe,
 } = require("../controllers/companyQualityController");
 
 const router = express.Router();
@@ -19,5 +20,6 @@ router.get("/admin/company-quality/duplicates", adminAuthMiddleware, listDuplica
 router.patch("/admin/company-quality/company", adminAuthMiddleware, updateCompany);
 router.post("/admin/company-quality/fix", adminAuthMiddleware, autoFix);
 router.post("/admin/company-quality/delete", adminAuthMiddleware, deleteCompanies);
+router.post("/admin/company-quality/dedupe", adminAuthMiddleware, dedupe);
 
 module.exports = router;

@@ -224,7 +224,8 @@ async function getDupRows(source, force = false) {
   if (!force && hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.rows;
 
   const preview = (p) => ({ $substrCP: [{ $ifNull: [`${p}description`, ""] }, 0, 240] });
-  const fields = { slug: 1, companyName: 1, linkedinUrl: 1, website: 1, description: preview };
+  const descLen = (p) => ({ $strLenCP: { $ifNull: [`${p}description`, ""] } });
+  const fields = { slug: 1, companyName: 1, linkedinUrl: 1, website: 1, description: preview, descLen };
   const jobs = [];
   if (source === "all" || source.startsWith("hub:")) {
     jobs.push(hubRows({ match: source === "all" ? {} : { hubSlug: source.slice(4) }, fields }));
@@ -343,74 +344,121 @@ exports.listBadChars = async (req, res) => {
 };
 
 /**
- * GET /admin/company-quality/duplicates?source=all&by=name|linkedin|both&status=&q=&page=1&limit=25
- * Groups of companies sharing a name and/or LinkedIn URL. Each group gets a status:
+ * Duplicate groups for `rows`. Members are sorted so the one to KEEP comes first:
+ * no bad characters, has LinkedIn, has website, longest description.
+ * Each group gets a status:
  *  - "verified":  same name and all LinkedIn URLs match (real duplicate)
  *  - "conflict":  same name/LinkedIn but the other one differs (check by hand)
  *  - "unverified": no LinkedIn URLs to compare
  */
+function buildDuplicateGroups(rows, { by, status, q, scope, badIds }) {
+  const groups = new Map();
+  for (const row of rows) {
+    const n = normName(row.companyName);
+    const l = normLinkedin(row.linkedinUrl);
+    let key = "";
+    if (by === "name") key = n;
+    else if (by === "linkedin") key = l;
+    else if (n && l) key = `${n}|${l}`;
+    if (!key) continue;
+    // "page" scope: only the same company listed twice on one page counts as a duplicate.
+    if (scope === "page") key = `${pageKeyOf(row)}|${key}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const keepScore = (m) =>
+    (badIds.has(m.id) ? -5000 : 0) + (normLinkedin(m.linkedinUrl) ? 1000 : 0) + (m.website ? 300 : 0) + (m.descLen || 0);
+
+  const out = [];
+  const statusCounts = { verified: 0, conflict: 0, unverified: 0 };
+  for (const [key, members] of groups) {
+    if (members.length < 2) continue;
+    const linkedins = new Set(members.map((m) => normLinkedin(m.linkedinUrl)).filter(Boolean));
+    const names = new Set(members.map((m) => normName(m.companyName)));
+    let groupStatus;
+    if (by === "both") groupStatus = "verified";
+    else if (by === "linkedin") groupStatus = names.size === 1 ? "verified" : "conflict";
+    else if (linkedins.size === 0) groupStatus = "unverified";
+    else if (linkedins.size === 1 && members.every((m) => normLinkedin(m.linkedinUrl))) groupStatus = "verified";
+    else groupStatus = "conflict";
+    statusCounts[groupStatus] += 1;
+
+    if (status && status !== groupStatus) continue;
+    if (q && !members.some((m) => matchesQuery(m, q))) continue;
+    members.sort((a, b) =>
+      keepScore(b) - keepScore(a) ||
+      sourceLabel(a.source).localeCompare(sourceLabel(b.source)) ||
+      (a.cityName || "").localeCompare(b.cityName || ""));
+    out.push({ key, status: groupStatus, count: members.length, members });
+  }
+  out.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  return { groups: out, statusCounts };
+}
+
+function dupParams(input) {
+  return {
+    source: String(input.source || "all"),
+    by: ["name", "linkedin", "both"].includes(input.by) ? input.by : "name",
+    status: String(input.status || ""),
+    q: String(input.q || "").trim().toLowerCase(),
+    scope: input.scope === "all" ? "all" : "page",
+  };
+}
+
+/** GET /admin/company-quality/duplicates?source=all&by=name|linkedin|both&scope=page|all&status=&q=&page=1&limit=25 */
 exports.listDuplicates = async (req, res) => {
   try {
-    const source = String(req.query.source || "all");
-    const by = ["name", "linkedin", "both"].includes(req.query.by) ? req.query.by : "name";
-    const status = String(req.query.status || "");
-    const q = String(req.query.q || "").trim().toLowerCase();
+    const { source, by, status, q, scope } = dupParams(req.query);
     const force = req.query.refresh === "1";
 
     const [rows, bad] = await Promise.all([getDupRows(source, force), getBadScan(force)]);
     const badIds = new Set(bad.rows.map((r) => r.id));
-
-    const groups = new Map();
-    for (const row of rows) {
-      const n = normName(row.companyName);
-      const l = normLinkedin(row.linkedinUrl);
-      let key = "";
-      if (by === "name") key = n;
-      else if (by === "linkedin") key = l;
-      else if (n && l) key = `${n}|${l}`;
-      if (!key) continue;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(row);
-    }
-
-    const out = [];
-    const statusCounts = { verified: 0, conflict: 0, unverified: 0 };
-    for (const [key, members] of groups) {
-      if (members.length < 2) continue;
-      const linkedins = new Set(members.map((m) => normLinkedin(m.linkedinUrl)).filter(Boolean));
-      const names = new Set(members.map((m) => normName(m.companyName)));
-      let groupStatus;
-      if (by === "both") groupStatus = "verified";
-      else if (by === "linkedin") groupStatus = names.size === 1 ? "verified" : "conflict";
-      else if (linkedins.size === 0) groupStatus = "unverified";
-      else if (linkedins.size === 1 && members.every((m) => normLinkedin(m.linkedinUrl))) groupStatus = "verified";
-      else groupStatus = "conflict";
-      statusCounts[groupStatus] += 1;
-
-      if (status && status !== groupStatus) continue;
-      if (q && !members.some((m) => matchesQuery(m, q))) continue;
-      out.push({ key, status: groupStatus, count: members.length, members });
-    }
-    out.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+    const { groups, statusCounts } = buildDuplicateGroups(rows, { by, status, q, scope, badIds });
 
     // Only shape the groups on the requested page.
-    const pageData = paginate(out, req);
+    const pageData = paginate(groups, req);
     pageData.data = pageData.data.map(({ members, ...g }) => ({
       ...g,
-      companies: members
-        .map((m) => ({ ...summarize(m), badChars: badIds.has(m.id) }))
-        .sort((a, b) => a.sourceLabel.localeCompare(b.sourceLabel) || (a.cityName || "").localeCompare(b.cityName || "")),
+      companies: members.map((m, i) => ({ ...summarize(m), badChars: badIds.has(m.id), keep: i === 0 })),
     }));
 
     res.json({
       ok: true,
       ...pageData,
       statusCounts,
-      duplicateCompanies: out.reduce((n, g) => n + g.count, 0),
+      duplicateCompanies: groups.reduce((n, g) => n + g.count, 0),
+      toDelete: groups.reduce((n, g) => n + g.count - 1, 0),
       scanned: rows.length,
     });
   } catch (err) {
     console.error("listDuplicates:", err);
+    res.status(500).json({ ok: false, message: "Server error" });
+  }
+};
+
+/**
+ * POST /admin/company-quality/dedupe  { source, by, scope, status, q }
+ * For every duplicate group matching the filters: keep the first (best) company and
+ * permanently delete the rest. Uses fresh data, not the cache.
+ */
+exports.dedupe = async (req, res) => {
+  try {
+    const { source, by, status, q, scope } = dupParams(req.body || {});
+    const [rows, bad] = await Promise.all([getDupRows(source, true), getBadScan(true)]);
+    const badIds = new Set(bad.rows.map((r) => r.id));
+    const { groups } = buildDuplicateGroups(rows, { by, status, q, scope, badIds });
+
+    const items = groups.flatMap((g) => g.members.slice(1).map((m) => ({ source: m.source, id: m.id })));
+    const deleted = await bulkDelete(items);
+    res.json({
+      ok: true,
+      groups: groups.length,
+      deleted,
+      message: `Cleaned ${groups.length} duplicate groups: kept 1 in each, deleted ${deleted} companies`,
+    });
+  } catch (err) {
+    console.error("dedupe:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -545,29 +593,68 @@ exports.autoFix = async (req, res) => {
   }
 };
 
+/**
+ * Permanently delete companies in bulk (one update per city, one deleteMany per directory),
+ * then clear caches and revalidate their public pages. Returns how many were deleted.
+ */
+async function bulkDelete(items) {
+  const hubByCity = new Map();
+  const flatBySource = new Map();
+  for (const item of items) {
+    const t = parseTarget(item);
+    if (!t) continue;
+    if (t.kind === "hub") {
+      if (!hubByCity.has(t.cityId)) hubByCity.set(t.cityId, new Set());
+      hubByCity.get(t.cityId).add(t.slug);
+    } else {
+      if (!flatBySource.has(t.source)) flatBySource.set(t.source, []);
+      flatBySource.get(t.source).push(t.id);
+    }
+  }
+
+  let deleted = 0;
+  const paths = new Set();
+
+  if (hubByCity.size) {
+    const cities = await City.find({ _id: { $in: [...hubByCity.keys()] } })
+      .select("slug hubSlug hubCompanies.slug")
+      .lean();
+    const ops = [];
+    for (const c of cities) {
+      const wanted = hubByCity.get(String(c._id));
+      const existing = (c.hubCompanies || []).map((co) => co.slug).filter((s) => wanted.has(s));
+      if (!existing.length) continue;
+      ops.push({ updateOne: { filter: { _id: c._id }, update: { $pull: { hubCompanies: { slug: { $in: existing } } } } } });
+      deleted += existing.length;
+      const base = HUB_PATHS[c.hubSlug] || "/msp";
+      paths.add(base);
+      paths.add(`${base}/${c.slug}`);
+      existing.forEach((s) => paths.add(`${base}/${c.slug}/${s}`));
+    }
+    if (ops.length) await City.bulkWrite(ops);
+  }
+
+  for (const [source, ids] of flatBySource) {
+    const { model, path } = FLAT_SOURCES[source];
+    const docs = await model.find({ _id: { $in: ids } }).select("slug").lean();
+    if (!docs.length) continue;
+    await model.deleteMany({ _id: { $in: docs.map((d) => d._id) } });
+    deleted += docs.length;
+    paths.add(path);
+    docs.forEach((d) => paths.add(`${path}/${d.slug}`));
+  }
+
+  clearCaches();
+  revalidateFrontend([...paths]);
+  return deleted;
+}
+
 /** POST /admin/company-quality/delete  { items: [{ source, id }] } */
 exports.deleteCompanies = async (req, res) => {
   try {
-    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : [];
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 5000) : [];
     if (!items.length) return res.status(400).json({ ok: false, message: "No companies selected" });
-
-    let deleted = 0;
-    const paths = new Set();
-    for (const item of items) {
-      const t = parseTarget(item);
-      if (!t) continue;
-      const loaded = await loadTarget(t);
-      if (!loaded) continue;
-      if (t.kind === "hub") {
-        await City.updateOne({ _id: t.cityId }, { $pull: { hubCompanies: { slug: t.slug } } });
-      } else {
-        await t.model.deleteOne({ _id: t.id });
-      }
-      pathsFor(t, loaded).forEach((p) => paths.add(p));
-      deleted += 1;
-    }
-    clearCaches();
-    revalidateFrontend([...paths]);
+    const deleted = await bulkDelete(items);
     res.json({ ok: true, deleted, message: `Deleted ${deleted} ${deleted === 1 ? "company" : "companies"}` });
   } catch (err) {
     console.error("deleteCompanies:", err);
@@ -575,6 +662,3 @@ exports.deleteCompanies = async (req, res) => {
   }
 };
 
-exports.normName = normName;
-exports.normLinkedin = normLinkedin;
-exports.SUSPECT_RE = SUSPECT_RE;
