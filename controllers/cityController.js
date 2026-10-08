@@ -1,5 +1,6 @@
 const xlsx =require("xlsx");
 const path = require("path");
+const publicCache = require("../utils/memoryCache");
 const fs = require("fs/promises");
 const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
@@ -145,6 +146,10 @@ function cleanedToHubDoc(cleaned, slug) {
 exports.getPublishedCitiesByHub = async (req, res) => {
   try {
     const { hubSlug } = req.params;
+    const cacheKey = `citiesList|${hubSlug}`;
+    const cached = publicCache.get(cacheKey);
+    if (cached) return res.json(cached);
+
     const cities = await City.find({
       hubSlug,
       isPublished: true,
@@ -153,14 +158,16 @@ exports.getPublishedCitiesByHub = async (req, res) => {
       .select("name slug state")
       .lean();
 
-    res.json({
+    const payload = {
       ok: true,
       data: cities.map((c) => ({
         name: c.name,
         slug: c.slug,
         state: c.state || "",
       })),
-    });
+    };
+    publicCache.set(cacheKey, payload);
+    res.json(payload);
   } catch (err) {
     console.error("getPublishedCitiesByHub:", err);
     res.status(500).json({ ok: false, message: "Server error" });
@@ -170,6 +177,14 @@ exports.getPublishedCitiesByHub = async (req, res) => {
 exports.getCityPublicByHub = async (req, res) => {
   try {
     const { hubSlug, citySlug } = req.params;
+
+    // Hot path (every city page render): serve from the short-lived cache when possible.
+    const cacheKey = `cityPublic|${hubSlug}|${String(citySlug).toLowerCase()}|${req.query.limit || ""}|${req.query.page || ""}`;
+    const cached = publicCache.get(cacheKey);
+    if (cached) {
+      res.set("Cache-Control", "private, no-store");
+      return res.json(cached);
+    }
 
     const city = await City.findOne({
       hubSlug,
@@ -203,8 +218,7 @@ exports.getCityPublicByHub = async (req, res) => {
       pagination = { page, limit, totalPages, totalCompanies: regular.length };
     }
 
-    res.set("Cache-Control", "private, no-store");
-    res.json({
+    const payload = {
       ok: true,
       data: {
         name: city.name,
@@ -220,7 +234,10 @@ exports.getCityPublicByHub = async (req, res) => {
         companiesSource: "hub",
         ...(pagination ? { pagination } : {}),
       },
-    });
+    };
+    publicCache.set(cacheKey, payload);
+    res.set("Cache-Control", "private, no-store");
+    res.json(payload);
   } catch (err) {
     console.error("getCityPublicByHub:", err);
     res.status(500).json({ ok: false, message: "Server error" });

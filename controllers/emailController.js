@@ -33,9 +33,10 @@ exports.leadPopup = async (req, res) => {
       console.error("Failed to save leadPopup lead to database:", dbErr);
     }
 
-    // Email to admin
-    await resend.emails.send({
+    // Email to admin (Reply goes straight to the lead)
+    const adminMail = resend.emails.send({
       from: FROM_EMAIL,
+      replyTo: email,
       to: ADMIN_EMAIL,
       subject: cleanSubject(`New Lead: ${email} ${pagePath || "/"}`),
       html: `
@@ -53,29 +54,28 @@ exports.leadPopup = async (req, res) => {
       `,
     });
 
-    // Plain text to user  better inbox delivery
-    await resend.emails.send({
+    // Plain text to user, better inbox delivery
+    const userMail = resend.emails.send({
       from: FROM_EMAIL,
       replyTo: ADMIN_EMAIL,
       to: email,
-      subject: "Re: Your MSP Company Data Request",
+      subject: "Which country do you need?",
       text: `Hi,
 
-You are one reply away from receiving your MSP company data. Just reply with the COUNTRY you need data from and we'll send your data within 12 hours.
+Thanks for your interest. Which country's data do you need?
 
-What's included in your MSP data:
-- Verified MSP company records
-- Decision maker contacts (CEO, CTO, IT Director)
-- Email, phone, LinkedIn & full firmographic data
-- Ready-to-use Excel format
-
-Just hit Reply to this email to get your data.
+Just reply with the country (for example USA, UK or Canada) and we will send it over.
 
 Best regards,
-MSP Companies Team
-info@mspcompanies.us
-mspcompanies.us`,
+MSPCompanies Team`,
     });
+
+    // Both emails go out at the same time. The lead is already saved, so one failed email must not
+    // show the visitor an error; only fail when neither email could be sent.
+    const results = await Promise.allSettled([adminMail, userMail]);
+    const failed = results.filter((r) => r.status === "rejected" || r.value?.error);
+    failed.forEach((r) => console.error("leadPopup email failed:", r.reason || r.value?.error));
+    if (failed.length === results.length) throw new Error("Both lead popup emails failed");
 
     res.json({ success: true, message: "Request submitted successfully" });
   } catch (error) {

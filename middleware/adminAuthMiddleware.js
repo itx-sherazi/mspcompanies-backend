@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const AdminUser = require("../models/AdminUser");
+const { isAllowedOrigin } = require("../utils/allowedOrigins");
 
 exports.adminAuthMiddleware = async (req, res, next) => {
   try {
@@ -11,6 +12,16 @@ exports.adminAuthMiddleware = async (req, res, next) => {
       token = authHeader.split(" ")[1];
     } else {
       token = req.cookies.adminToken;
+
+      // CSRF guard: the cookie is SameSite=None (the dashboard is on another site), so a hostile page could
+      // make the browser send it with a cross-site form POST. Browsers always attach Origin to such writes,
+      // so a cookie-authenticated write from an origin we do not know is refused. Bearer requests (not
+      // sent automatically by browsers) and non-browser clients without Origin are unaffected.
+      const safeMethod = ["GET", "HEAD", "OPTIONS"].includes(req.method);
+      const origin = req.headers.origin;
+      if (token && !safeMethod && origin && !isAllowedOrigin(origin)) {
+        return res.status(403).json({ ok: false, message: "Forbidden origin" });
+      }
     }
 
     if (!token) {

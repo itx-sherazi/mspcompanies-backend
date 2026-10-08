@@ -63,7 +63,7 @@ exports.getCategories = async (req, res) => {
 
     const categories = await Category.find(filter)
       .sort({ title: 1 })
-      .select("slug title group meta.title status")
+      .select("slug title group meta.title status updatedAt")
       .lean();
 
     res.json({ ok: true, data: categories });

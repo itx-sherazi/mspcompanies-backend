@@ -5,7 +5,8 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
-const { loginLimiter } = require("./middleware/rateLimits");
+const { isAllowedOrigin } = require("./utils/allowedOrigins");
+const { loginLimiter, publicApiBurstLimiter, publicApiHourlyLimiter } = require("./middleware/rateLimits");
 
 dotenv.config();
 
@@ -17,23 +18,11 @@ app.set("trust proxy", 1);
 // API only serves JSON, so allow cross-origin reads of responses.
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://localhost:3002",
-  "http://localhost:3005",
-  "https://mspcompanies.us",
-  "https://mspcompanies-dashboard.vercel.app",
-  "https://www.mspcompanies-dashboard.vercel.app",
-];
-// Any https subdomain of mspcompanies.us (www, dashboard, api, ...)
-const MSP_SUBDOMAIN = /^https:\/\/([a-z0-9-]+\.)+mspcompanies\.us$/;
-
 const corsOptions = {
   origin: (origin, callback) => {
     // No Origin header = server-to-server (Next.js SSR, curl); allowed.
     // Unknown origins get no CORS headers, so the browser blocks them (no 500 error).
-    callback(null, !origin || allowedOrigins.includes(origin) || MSP_SUBDOMAIN.test(origin));
+    callback(null, !origin || isAllowedOrigin(origin));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -49,6 +38,19 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
 
 app.use("/api/v1/login", loginLimiter);
+
+// Anti-scraping for the public data endpoints (website server is exempt via INTERNAL_API_KEY).
+app.use(
+  [
+    "/api/v1/managed-it-services",
+    "/api/v1/cybersecurity-companies",
+    "/api/v1/vendors",
+    "/api/v1/companies/search",
+    "/api/v1/public/hubs",
+  ],
+  publicApiBurstLimiter,
+  publicApiHourlyLimiter,
+);
 
 app.get("/", (req, res) => {
   res.send("MSP Companies API v1.0 - Running");

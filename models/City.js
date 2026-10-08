@@ -73,5 +73,14 @@ const citySchema = new mongoose.Schema(
 
 citySchema.index({ hubSlug: 1, slug: 1 }, { unique: true });
 
+// Any change to a City invalidates the public read cache (utils/memoryCache.js).
+const publicCache = require("../utils/memoryCache");
+citySchema.post("save", () => publicCache.clear());
+citySchema.post(
+  ["updateOne", "updateMany", "findOneAndUpdate", "findOneAndDelete", "findOneAndReplace", "deleteOne", "deleteMany", "replaceOne"],
+  () => publicCache.clear(),
+);
+citySchema.post(["insertMany", "bulkWrite"], () => publicCache.clear());
+
 const City = mongoose.model("City", citySchema);
 module.exports = City;
