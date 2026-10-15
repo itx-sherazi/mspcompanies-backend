@@ -59,7 +59,7 @@ exports.leadPopup = async (req, res) => {
       from: FROM_EMAIL,
       replyTo: ADMIN_EMAIL,
       to: email,
-      subject: "Which country do you need?",
+      subject: "Your MSP / MSSP Company Data Request",
       text: `Hi,
 
 Thanks for your interest. Which country's data do you need?
