@@ -1,6 +1,6 @@
 const xlsx = require("xlsx");
 const CyberSecurityCompany = require("../models/CyberSecurityCompany");
-const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcategory");
+const { cleanCompanyData, createSafeSlug } = require("../utils/companyData");
 const { escapeRegex, queryString } = require("../utils/escapeRegex");
 
 function uniqueSlug(companyName, usedSlugs) {

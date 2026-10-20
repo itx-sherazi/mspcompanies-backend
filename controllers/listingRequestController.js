@@ -1,5 +1,6 @@
 const ListingRequest = require("../models/ListingRequest");
-const City = require("../models/City");
+const ManagedItCompany = require("../models/ManagedItCompany");
+const { publishListing } = require("../utils/listingPublish");
 const cloudinary = require("../config/cloudinary");
 const nodemailer = require("nodemailer");
 const { escapeFields, safeUrl, cleanSubject, isValidEmail, firstTooLong } = require("../utils/emailSafety");
@@ -7,7 +8,6 @@ const { escapeRegex } = require("../utils/escapeRegex");
 const {
   findPublishedMspCity,
   findPublishedMspCountry,
-  appendListingCompanyToCity,
 } = require("./cityController");
 
 function nameKey(name) {
@@ -23,13 +23,11 @@ async function findExistingByCompanyName(companyName) {
   if (!key) return null;
 
   const loose = new RegExp(key.split(" ").map(escapeRegex).join("\\s+"), "i");
-  const [cities, requests] = await Promise.all([
-    City.find({
-      hubSlug: "managed-service-providers",
-      isPublished: true,
-      "hubCompanies.companyName": loose,
-    })
-      .select("slug name hubCompanies.slug hubCompanies.companyName hubCompanies.companyCity hubCompanies.companyCountry")
+  const [listed, requests] = await Promise.all([
+    // The main directory is the master data: every company on every page is in it.
+    ManagedItCompany.find({ companyName: loose })
+      .select("slug companyName companyCity companyState companyCountry cityPageSlug cityPageName")
+      .limit(80)
       .lean(),
     ListingRequest.find({
       status: { $in: ["pending", "approved"] },
@@ -40,18 +38,16 @@ async function findExistingByCompanyName(companyName) {
       .lean(),
   ]);
 
-  for (const city of cities) {
-    const hit = (city.hubCompanies || []).find((c) => nameKey(c.companyName) === key);
-    if (hit) {
-      return {
-        reason: "listed",
-        companyName: hit.companyName,
-        slug: hit.slug,
-        cityName: city.name || hit.companyCity || "",
-        citySlug: city.slug || "",
-        countryName: hit.companyCountry || "",
-      };
-    }
+  const hit = listed.find((c) => nameKey(c.companyName) === key);
+  if (hit) {
+    return {
+      reason: "listed",
+      companyName: hit.companyName,
+      slug: hit.slug,
+      cityName: hit.cityPageName || hit.companyCity || "",
+      citySlug: hit.cityPageSlug || "",
+      countryName: hit.companyCountry || "",
+    };
   }
 
   const existingReq = requests.find((r) => nameKey(r.companyName) === key);
@@ -77,24 +73,6 @@ function toArray(val) {
 
 function row(label, value) {
   return `<p style="margin:0 0 8px;font-size:13px;color:#374151;"><span style="display:inline-block;min-width:160px;font-weight:600;color:#0F1C36;">${label}:</span> ${value}</p>`;
-}
-function summaryRow(label, value) {
-  return `<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;color:#64748b;width:140px;">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0F1C36;">${value}</td></tr>`;
-}
-function nextStep(num, color, title, desc) {
-  return `<tr><td style="padding:6px 0;vertical-align:top;width:32px;"><div style="width:24px;height:24px;background:${color};color:#fff;border-radius:50%;text-align:center;line-height:24px;font-size:12px;font-weight:700;">${num}</div></td><td style="padding:6px 0 6px 10px;"><strong style="font-size:13px;color:#0F1C36;">${title}</strong><br/><span style="font-size:12px;color:#64748b;">${desc}</span></td></tr>`;
-}
-
-function getTransporter() {
-  return nodemailer.createTransport({
-    host: process.env.CONTACT_SMTP_HOST || "smtp.gmail.com",
-    port: parseInt(process.env.CONTACT_SMTP_PORT || "587"),
-    secure: false,
-    auth: {
-      user: process.env.CONTACT_SMTP_USER,
-      pass: process.env.CONTACT_SMTP_PASS,
-    },
-  });
 }
 
 function getListingTransporter() {
@@ -451,7 +429,8 @@ exports.updateListingStatus = async (req, res) => {
     }
 
     try {
-      const published = await appendListingCompanyToCity(city, listing);
+      // Into the master directory, and from there onto its city, state and country pages.
+      const published = await publishListing(listing, city);
       listing.status = "approved";
       listing.adminNote = note;
       listing.requestedCity = city.name;
@@ -474,7 +453,7 @@ exports.updateListingStatus = async (req, res) => {
       if (pubErr.code === "DUPLICATE") {
         return res.status(409).json({
           ok: false,
-          message: "Company already listed on this city page",
+          message: "Company already in the directory",
         });
       }
       throw pubErr;

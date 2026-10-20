@@ -1,59 +1,5 @@
-const xlsx = require("xlsx");
 const ManagedItCompany = require("../models/ManagedItCompany");
-const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcategory");
 const { escapeRegex, queryString } = require("../utils/escapeRegex");
-
-function uniqueSlug(companyName, usedSlugs) {
-  const base = createSafeSlug(companyName);
-  if (!base) return null;
-  let slug = base;
-  let n = 1;
-  while (usedSlugs.has(slug)) {
-    n += 1;
-    slug = `${base}-${n}`;
-  }
-  usedSlugs.add(slug);
-  return slug;
-}
-
-/** Case-insensitive company name key. "Acme  IT" and "acme it" are the same company. */
-function nameKey(name) {
-  return String(name || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[.,'"()]/g, "")
-    .replace(/\s+/g, " ");
-}
-
-function rowToDoc(cleaned, slug) {
-  return {
-    slug,
-    companyName: cleaned.companyName,
-    employees: cleaned.employees || "",
-    industry: (cleaned.industryTags || []).join(", ") || "",
-    website: cleaned.website || "",
-    companyServices: cleaned.companyServices || [],
-    companyPartners: cleaned.companyPartners || [],
-    linkedinUrl: cleaned.linkedinUrl || "",
-    facebookUrl: cleaned.facebookUrl || "",
-    twitterUrl: cleaned.twitterUrl || "",
-    companyStreet: cleaned.companyStreet || "",
-    companyCity: cleaned.companyCity || "",
-    companyState: cleaned.companyState || "",
-    companyCountry: cleaned.companyCountry || "",
-    companyPostalCode: cleaned.companyPostalCode || "",
-    address: cleaned.address || "",
-    keywords: cleaned.keywords || [],
-    phone: cleaned.phone || "",
-    technologies: cleaned.technologies || [],
-    sicCodes: cleaned.sicCodes || [],
-    naicsCodes: cleaned.naicsCodes || [],
-    description: cleaned.description || "",
-    foundedYear: cleaned.foundedYear || null,
-    image: cleaned.image || "",
-    isPublished: true,
-  };
-}
 
 // ── Public ──────────────────────────────────────────────
 
@@ -66,6 +12,7 @@ exports.listCompanies = async (req, res) => {
 
     const filter = { isPublished: true };
     if (req.query.state) filter.companyState = { $regex: new RegExp(`^${escapeRegex(queryString(req.query.state))}$`, "i") };
+    if (req.query.country) filter.companyCountry = { $regex: new RegExp(`^${escapeRegex(queryString(req.query.country))}$`, "i") };
 
     // city search  matches city, state, OR country
     if (req.query.city) {
@@ -113,7 +60,7 @@ exports.listCompanies = async (req, res) => {
         .sort({ companyName: 1 })
         .skip(skip)
         .limit(limit)
-        .select("slug companyName employees industry website companyCity companyState companyCountry phone description image companyServices companyPartners technologies foundedYear linkedinUrl facebookUrl twitterUrl")
+        .select("slug companyName employees industry website companyCity companyState companyCountry phone description tagline image companyServices companyPartners technologies foundedYear linkedinUrl facebookUrl twitterUrl indexEligible supportHours revenueSize")
         .lean(),
     ]);
 
@@ -128,17 +75,36 @@ exports.listCompanies = async (req, res) => {
 exports.getFilters = async (req, res) => {
   try {
     const base = { isPublished: true };
-    const [states, industries, servicesRaw, technologiesRaw, partnersRaw] = await Promise.all([
+    const [states, countries, industries, servicesRaw, technologiesRaw, partnersRaw] = await Promise.all([
       ManagedItCompany.distinct("companyState",    { ...base, companyState:    { $nin: ["", null] } }),
+      ManagedItCompany.distinct("companyCountry",  { ...base, companyCountry:  { $nin: ["", null] } }),
       ManagedItCompany.distinct("industry",        { ...base, industry:        { $nin: ["", null] } }),
       ManagedItCompany.distinct("companyServices", { ...base, companyServices: { $not: { $size: 0 } } }),
       ManagedItCompany.distinct("technologies",    { ...base, technologies:    { $not: { $size: 0 } } }),
       ManagedItCompany.distinct("companyPartners", { ...base, companyPartners: { $not: { $size: 0 } } }),
     ]);
     const clean = (arr) => arr.filter((v) => v && String(v).trim()).sort();
+    // How many companies each state / country has, shown next to the name in the filter dropdowns.
+    const [stateCounts, countryCounts] = await Promise.all([
+      ManagedItCompany.aggregate([
+        { $match: { ...base, companyState: { $nin: ["", null] } } },
+        { $group: { _id: { name: "$companyState", country: "$companyCountry" }, count: { $sum: 1 } } },
+        { $project: { _id: 0, name: "$_id.name", country: "$_id.country", count: 1 } },
+        { $sort: { name: 1 } },
+      ]),
+      ManagedItCompany.aggregate([
+        { $match: { ...base, companyCountry: { $nin: ["", null] } } },
+        { $group: { _id: "$companyCountry", count: { $sum: 1 } } },
+        { $project: { _id: 0, name: "$_id", count: 1 } },
+        { $sort: { count: -1, name: 1 } },
+      ]),
+    ]);
     res.json({
       ok: true,
       states:       clean(states),
+      countries:    clean(countries),
+      stateCounts,
+      countryCounts,
       industries:   clean(industries),
       services:     clean(servicesRaw),
       technologies: clean(technologiesRaw),
@@ -154,34 +120,53 @@ exports.getFilters = async (req, res) => {
 exports.getRelated = async (req, res) => {
   try {
     const slug = String(req.params.slug).toLowerCase();
-    const company = await ManagedItCompany.findOne({
-      slug,
-      isPublished: true,
-    }).select("industry companyState keywords").lean();
+    const company = await ManagedItCompany.findOne({ slug, isPublished: true })
+      .select("companyCity companyState companyCountry")
+      .lean();
+    if (!company) return res.json({ ok: true, data: [], scope: "" });
 
-    if (!company) return res.json({ ok: true, data: [] });
+    const WANT = 4;
+    const base = { isPublished: true, slug: { $ne: slug } };
+    // Closest first: same city, then same state, then same country. Within a step, verified profiles
+    // (Index Eligible) come before the rest, picked at random so every profile gets shown over time.
+    const tiers = [];
+    if (company.companyCity && company.companyState) tiers.push({ scope: "city", match: { companyCity: company.companyCity, companyState: company.companyState, companyCountry: company.companyCountry } });
+    if (company.companyState) tiers.push({ scope: "state", match: { companyState: company.companyState, companyCountry: company.companyCountry } });
+    if (company.companyCountry) tiers.push({ scope: "country", match: { companyCountry: company.companyCountry } });
 
-    const orClauses = [];
-    if (company.industry)         orClauses.push({ industry:     company.industry });
-    if (company.companyState)     orClauses.push({ companyState: company.companyState });
-    if (company.keywords?.length) orClauses.push({ keywords: { $in: company.keywords.slice(0, 5) } });
-
-    const filter = {
-      isPublished: true,
-      slug: { $ne: slug },
-      ...(orClauses.length ? { $or: orClauses } : {}),
-    };
-
-    // Use aggregation with $sample for random results each time
-    const related = await ManagedItCompany.aggregate([
-      { $match: filter },
-      { $sample: { size: 4 } },
-      { $project: { slug: 1, companyName: 1, industry: 1, companyCity: 1, companyState: 1, description: 1, image: 1, employees: 1 } },
-    ]);
-
-    res.json({ ok: true, data: related });
+    const picked = [];
+    const seen = new Set();
+    let scope = "";
+    const project = { slug: 1, companyName: 1, industry: 1, companyCity: 1, companyState: 1, description: 1, image: 1, employees: 1, tagline: 1, indexEligible: 1 };
+    for (const tier of tiers) {
+      for (const eligibleOnly of [true, false]) {
+        const need = WANT - picked.length;
+        if (need <= 0) break;
+        const match = { ...base, ...tier.match, slug: { $nin: [slug, ...seen] }, ...(eligibleOnly ? { indexEligible: true } : {}) };
+        const rows = await ManagedItCompany.aggregate([{ $match: match }, { $sample: { size: need } }, { $project: project }]);
+        for (const r of rows) { picked.push(r); seen.add(r.slug); }
+        if (rows.length && !scope) scope = tier.scope;
+      }
+      if (picked.length >= WANT) break;
+    }
+    res.json({ ok: true, data: picked, scope });
   } catch (err) {
     console.error("getRelated:", err);
+    res.status(500).json({ ok: false, message: "Server error" });
+  }
+};
+
+/** GET /api/v1/managed-it-services/sitemap-entries  slugs of profiles that may be indexed (Index Eligible = Y) */
+exports.getSitemapEntries = async (req, res) => {
+  try {
+    const rows = await ManagedItCompany.find({ isPublished: true, indexEligible: true })
+      .select("slug updatedAt")
+      .sort({ slug: 1 })
+      .lean();
+    res.set("Cache-Control", "public, max-age=300, s-maxage=1800");
+    res.json({ ok: true, data: rows.map((r) => ({ slug: r.slug, lastmod: r.updatedAt ? new Date(r.updatedAt).toISOString() : null })) });
+  } catch (err) {
+    console.error("getSitemapEntries:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -204,134 +189,6 @@ exports.getCompany = async (req, res) => {
 
 // ── Admin ────────────────────────────────────────────────
 
-/** POST /api/v1/admin/managed-it-services/upload  (multipart: file) */
-exports.uploadSheet = async (req, res) => {
-  try {
-    const fileBuffer = req.files?.file?.[0]?.buffer;
-    if (!fileBuffer) return res.status(400).json({ ok: false, message: "Excel file (field: file) is required." });
-
-    let workbook;
-    try {
-      workbook = xlsx.read(fileBuffer, { type: "buffer", raw: false });
-    } catch (e) {
-      return res.status(400).json({ ok: false, message: "Invalid Excel file.", error: e.message });
-    }
-
-    const sheetName = workbook.SheetNames[0];
-    if (!sheetName) return res.status(400).json({ ok: false, message: "Excel file has no sheets." });
-
-    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-    if (!rows.length) return res.status(400).json({ ok: false, message: "No rows found in sheet." });
-
-    const mode = String(req.body.mode || "append").toLowerCase(); // "replace" | "append"
-    const sheetRows = rows.length;
-
-    const existing = await ManagedItCompany.find({}, "slug companyName").lean();
-    const existingBefore = existing.length;
-    const existingNames = new Set(existing.map((c) => nameKey(c.companyName)).filter(Boolean));
-    const usedSlugs = new Set(
-      mode === "replace" ? [] : existing.map((c) => c.slug).filter(Boolean),
-    );
-    const seenInSheet = new Set();
-
-    const docs = [];
-    let skippedEmpty = 0;
-    let skippedSheetDuplicates = 0;
-    let skippedExisting = 0;
-
-    for (const row of rows) {
-      const companyName = String(row["Company Name"] ?? "").trim();
-      const key = nameKey(companyName);
-      if (!key) {
-        skippedEmpty += 1;
-        continue;
-      }
-      if (seenInSheet.has(key)) {
-        skippedSheetDuplicates += 1;
-        continue;
-      }
-      seenInSheet.add(key);
-
-      if (mode !== "replace" && existingNames.has(key)) {
-        skippedExisting += 1;
-        continue;
-      }
-
-      const cleaned = cleanCompanyData(row);
-      if (!cleaned.companyName) {
-        skippedEmpty += 1;
-        continue;
-      }
-
-      if (!cleaned.companyState && row["Company State"]) {
-        cleaned.companyState = String(row["Company State"]).trim();
-      }
-      if (!cleaned.companyCountry && row["Company Country"]) {
-        cleaned.companyCountry = String(row["Company Country"]).trim();
-      }
-
-      const slug = uniqueSlug(cleaned.companyName, usedSlugs);
-      if (!slug) {
-        skippedEmpty += 1;
-        continue;
-      }
-      docs.push(rowToDoc(cleaned, slug));
-    }
-
-    if (mode === "replace") {
-      await ManagedItCompany.deleteMany({});
-      if (docs.length) await ManagedItCompany.insertMany(docs, { ordered: false });
-    } else if (docs.length) {
-      await ManagedItCompany.insertMany(docs, { ordered: false });
-    }
-
-    const uploaded = docs.length;
-    const skippedDuplicates = skippedSheetDuplicates + skippedExisting;
-    const keptExisting = mode === "replace" ? 0 : existingBefore;
-    const totalAfter = keptExisting + uploaded;
-    const stats = {
-      sheetRows,
-      uploaded,
-      skippedDuplicates,
-      skippedExisting,
-      skippedSheetDuplicates,
-      skippedEmpty,
-      keptExisting,
-      totalAfter,
-      mode: mode === "replace" ? "replace" : "append",
-    };
-
-    const message =
-      mode === "replace"
-        ? [
-            `Replace: purani list delete ho gayi.`,
-            `Sheet mein ${sheetRows} companies thin.`,
-            `${uploaded} upload ho gayi.`,
-            skippedSheetDuplicates ? `${skippedSheetDuplicates} sheet ke andar duplicate skip.` : "",
-            `Ab database mein ${totalAfter} companies hain.`,
-          ]
-            .filter(Boolean)
-            .join(" ")
-        : [
-            `Append: purani companies remove nahi hui (${keptExisting} pehle se thi).`,
-            `Sheet mein ${sheetRows} companies thin.`,
-            `${uploaded} nayi add ho gayi.`,
-            skippedDuplicates
-              ? `${skippedDuplicates} duplicate skip (${skippedExisting} already in database, ${skippedSheetDuplicates} sheet repeat).`
-              : "Koi duplicate skip nahi hui.",
-            skippedEmpty ? `${skippedEmpty} empty / invalid rows ignore.` : "",
-            `Ab database mein ${totalAfter} companies hain.`,
-          ]
-            .filter(Boolean)
-            .join(" ");
-
-    res.json({ ok: true, message, count: uploaded, stats });
-  } catch (err) {
-    console.error("uploadSheet:", err);
-    res.status(500).json({ ok: false, message: "Server error", error: process.env.NODE_ENV === "development" ? err.message : undefined });
-  }
-};
-
 /** GET /api/v1/admin/managed-it-services?page=1&limit=50&q= */
 exports.listAdmin = async (req, res) => {
   try {
@@ -343,11 +200,16 @@ exports.listAdmin = async (req, res) => {
       const re = new RegExp(escapeRegex(queryString(req.query.q)), "i");
       filter.$or = [{ companyName: re }, { companyCity: re }, { companyState: re }];
     }
-    const [total, data] = await Promise.all([
+    // Index Eligible filter: eligible=yes | no
+    if (req.query.eligible === "yes") filter.indexEligible = true;
+    else if (req.query.eligible === "no") filter.indexEligible = { $ne: true };
+    const [total, data, eligibleTotal, directoryTotal] = await Promise.all([
       ManagedItCompany.countDocuments(filter),
       ManagedItCompany.find(filter).sort({ companyName: 1 }).skip(skip).limit(limit).lean(),
+      ManagedItCompany.countDocuments({ indexEligible: true }),
+      ManagedItCompany.estimatedDocumentCount(),
     ]);
-    res.json({ ok: true, data, total, page, limit, totalPages: Math.ceil(total / limit) });
+    res.json({ ok: true, data, total, page, limit, totalPages: Math.ceil(total / limit), eligibleTotal, directoryTotal });
   } catch (err) {
     console.error("listAdmin:", err);
     res.status(500).json({ ok: false, message: "Server error" });
@@ -377,4 +239,3 @@ exports.deleteAll = async (req, res) => {
   }
 };
 
-exports.nameKey = nameKey;

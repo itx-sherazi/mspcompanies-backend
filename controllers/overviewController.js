@@ -9,6 +9,7 @@ const Category = require("../models/Category.js");
 const Blog = require("../models/Blog.js");
 const DataRequest = require("../models/DataRequest.js");
 const ListingRequest = require("../models/ListingRequest.js");
+const ClaimRequest = require("../models/ClaimRequest.js");
 
 // hubSlug -> dashboard tab, public base path and label.
 const HUBS = {
@@ -45,6 +46,28 @@ async function hubStats() {
       companies: byHub[h]?.companies || 0,
     }]),
   );
+}
+
+/**
+ * Unique companies. One company can sit in the directory AND on its city, state and country page, so adding
+ * the per-store counts counts it several times. Companies from the master sheet share one slug everywhere,
+ * so counting distinct slugs gives the real number.
+ *   MSP side  : city / state / country pages + Managed IT directory
+ *   MSSP side : Top MSSP pages + Cybersecurity directory
+ */
+async function distinctSlugs(hubSlugs, Directory) {
+  const rows = await City.aggregate(
+    [
+      { $match: { hubSlug: { $in: hubSlugs } } },
+      { $project: { _id: 0, slug: "$hubCompanies.slug" } },
+      { $unwind: "$slug" },
+      { $unionWith: { coll: Directory.collection.name, pipeline: [{ $project: { _id: 0, slug: 1 } }] } },
+      { $group: { _id: "$slug" } },
+      { $count: "n" },
+    ],
+    { allowDiskUse: true },
+  );
+  return rows[0]?.n || 0;
 }
 
 async function leadStats() {
@@ -141,7 +164,7 @@ async function recentUpdates(limit = 10) {
 exports.getOverview = async (req, res) => {
   try {
     const isAdmin = req.user?.role === "admin";
-    const [hubs, mitCount, cyberCount, vendorCount, blogTotal, blogPublished, catTotal, catPublished, leads, updates] =
+    const [hubs, mitCount, cyberCount, vendorCount, blogTotal, blogPublished, catTotal, catPublished, leads, updates, mspUnique, msspUnique, claimCounts] =
       await Promise.all([
         hubStats(),
         ManagedItCompany.countDocuments(),
@@ -153,6 +176,9 @@ exports.getOverview = async (req, res) => {
         Category.countDocuments({ status: "published" }),
         isAdmin ? leadStats() : null,
         recentUpdates(),
+        distinctSlugs(["managed-service-providers", "top-msps"], ManagedItCompany),
+        distinctSlugs(["top-mssp"], CyberSecurityCompany),
+        isAdmin ? Promise.all([ClaimRequest.countDocuments({ status: "new" }), ClaimRequest.estimatedDocumentCount()]) : null,
       ]);
 
     const city = hubs["managed-service-providers"];
@@ -162,11 +188,14 @@ exports.getOverview = async (req, res) => {
     res.json({
       ok: true,
       companies: {
-        total: city.companies + topMsps.companies + topMssp.companies + mitCount + cyberCount,
+        // Unique companies. The breakdown below counts LISTINGS (the same company is listed on its city,
+        // state and country page and in the directory), so its numbers add up to more than the total.
+        total: mspUnique + msspUnique,
+        totalIsUnique: true,
         breakdown: [
-          { key: "city", label: "MSP city pages", count: city.companies, tab: "CityHub" },
-          { key: "topMsps", label: "Top MSPs countries", count: topMsps.companies, tab: "CountryHub" },
-          { key: "topMssp", label: "Top MSSP countries", count: topMssp.companies, tab: "MsspCountryHub" },
+          { key: "city", label: "Listings on city and state pages", count: city.companies, tab: "CityHub" },
+          { key: "topMsps", label: "Listings on Top MSPs country pages", count: topMsps.companies, tab: "CountryHub" },
+          { key: "topMssp", label: "Listings on Top MSSP country pages", count: topMssp.companies, tab: "MsspCountryHub" },
           { key: "mit", label: "Managed IT directory", count: mitCount, tab: "ManagedIT" },
           { key: "cyber", label: "Cybersecurity directory", count: cyberCount, tab: "CyberSecurity" },
         ],
@@ -180,6 +209,7 @@ exports.getOverview = async (req, res) => {
         categories: { total: catTotal, published: catPublished },
       },
       leads,
+      claims: claimCounts ? { new: claimCounts[0], total: claimCounts[1] } : null,
       recentUpdates: updates,
     });
   } catch (err) {

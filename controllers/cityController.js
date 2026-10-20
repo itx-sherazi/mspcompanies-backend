@@ -5,10 +5,11 @@ const fs = require("fs/promises");
 const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
 const cloudinary = require("../config/cloudinary.js");
-const { cleanCompanyData, createSafeSlug } = require("./uploadCompaniesToSubcategory.js");
+const { cleanCompanyData, createSafeSlug } = require("../utils/companyData");
 const { cleanHtml } = require("../utils/sanitizeHtml");
 const { revalidateFrontend } = require("../utils/revalidateFrontend");
 const { escapeRegex } = require("../utils/escapeRegex");
+const { dedupeKeys } = require("../utils/masterSheet");
 
 const HUB_MANAGED_IT = "managed-service-providers";
 const HUB_TOP_MSPS = "top-msps";
@@ -99,6 +100,18 @@ function uniqueSlugForBatch(companyName, usedSlugs) {
   return slug;
 }
 
+/** Master-sheet profile fields (Profile Summary, Tagline, Index Eligible ...). */
+const PROFILE_FIELDS = [
+  "profileSummary", "tagline", "industriesServed", "serviceArea", "certifications", "supportHours", "indexEligible",
+  "clientSizeFocus", "specialization", "complianceFrameworks", "bookingUrl", "citySlug", "stateSlug", "countrySlug",
+  "googleMapsUrl", "faqs",
+];
+function pickProfileFields(src) {
+  const out = {};
+  for (const k of PROFILE_FIELDS) if (src && src[k] !== undefined) out[k] = src[k];
+  return out;
+}
+
 function cleanedToHubDoc(cleaned, slug) {
   const fullAddress = [
     cleaned.companyStreet,
@@ -137,6 +150,7 @@ function cleanedToHubDoc(cleaned, slug) {
     sicCodes: cleaned.sicCodes || [],
     technologies: cleaned.technologies || [],
     vars: cleaned.vars || "",
+    ...pickProfileFields(cleaned),
     isSponsored: false,
   };
 }
@@ -244,10 +258,13 @@ exports.getCityPublicByHub = async (req, res) => {
   }
 };
 
-/** Single company on a city page (same data as hubCompanies entry). */
+/** Single company on a page of the cybersecurity (top-mssp) hub. MSP companies only have the directory profile. */
 exports.getCityCompanyPublicByHub = async (req, res) => {
   try {
     const { hubSlug, citySlug, companySlug } = req.params;
+    if (hubSlug === HUB_MANAGED_IT || hubSlug === HUB_TOP_MSPS) {
+      return res.status(404).json({ ok: false, message: "MSP profiles live at /managed-it-services/{slug}" });
+    }
 
     const city = await City.findOne({
       hubSlug,
@@ -298,29 +315,18 @@ exports.getCityCompanyPublicByHub = async (req, res) => {
 exports.getManagedItHubSitemapEntries = async (req, res) => {
   try {
     const hubSlug = req.params.hubSlug || HUB_MANAGED_IT;
-    const lite = req.query.lite === "1" || req.query.lite === "true";
-    const cities = lite
-      ? await City.aggregate([
-          { $match: { hubSlug, isPublished: true } },
-          { $sort: { name: 1 } },
-          // companyCount lets the sitemap leave out city pages that have no listings (they are noindex)
-          { $project: { slug: 1, updatedAt: 1, companyCount: { $size: { $ifNull: ["$hubCompanies", []] } } } },
-        ])
-      : await City.find({ hubSlug, isPublished: true })
-          .sort({ name: 1 })
-          .select("slug updatedAt hubCompanies.slug")
-          .lean();
+    // Page level only: the sitemap lists city / state / country pages, never company copies.
+    const cities = await City.aggregate([
+      { $match: { hubSlug, isPublished: true } },
+      { $sort: { name: 1 } },
+      // companyCount lets the sitemap leave out pages that have no listings (they are noindex)
+      { $project: { slug: 1, updatedAt: 1, companyCount: { $size: { $ifNull: ["$hubCompanies", []] } } } },
+    ]);
 
     const data = cities.map((c) => ({
       slug: c.slug,
       lastmod: c.updatedAt ? new Date(c.updatedAt).toISOString() : null,
-      ...(lite
-        ? { companyCount: c.companyCount }
-        : {
-            companySlugs: (c.hubCompanies || [])
-              .map((co) => (co && co.slug ? String(co.slug).trim() : ""))
-              .filter(Boolean),
-          }),
+      companyCount: c.companyCount,
     }));
 
     res.set("Cache-Control", "public, max-age=300, s-maxage=1800");
@@ -486,6 +492,19 @@ exports.listAllHubCompaniesAdmin = async (req, res) => {
           "hubCompanies.revenueSize": 1,
           "hubCompanies.companyState": 1,
           "hubCompanies.companyCountry": 1,
+          "hubCompanies.tagline": 1,
+          "hubCompanies.profileSummary": 1,
+          "hubCompanies.industriesServed": 1,
+          "hubCompanies.serviceArea": 1,
+          "hubCompanies.certifications": 1,
+          "hubCompanies.supportHours": 1,
+          "hubCompanies.indexEligible": 1,
+          "hubCompanies.clientSizeFocus": 1,
+          "hubCompanies.specialization": 1,
+          "hubCompanies.complianceFrameworks": 1,
+          "hubCompanies.bookingUrl": 1,
+          "hubCompanies.googleMapsUrl": 1,
+          "hubCompanies.faqs": 1,
         })
         .lean();
 
@@ -819,9 +838,28 @@ exports.updateHubCompany = async (req, res) => {
       "SIC Codes": body.sicCodes,
       Technologies: body.technologies,
       VARS: body.vars,
+      "Profile Summary": body.profileSummary,
+      Tagline: body.tagline,
+      "Industries Served": body.industriesServed,
+      "Service Area": body.serviceArea,
+      Certifications: body.certifications,
+      "Support Hours": body.supportHours,
+      "Index Eligible": body.indexEligible,
+      "Client Size Focus": body.clientSizeFocus,
+      Specialization: body.specialization,
+      "Compliance Frameworks": body.complianceFrameworks,
+      "Booking/Contact URL": body.bookingUrl,
+      "City Slug": body.citySlug,
+      "State Slug": body.stateSlug,
+      "Country Slug": body.countrySlug,
+      "Google Maps URL": body.googleMapsUrl,
+      "Company FAQ": body.faqs,
     };
 
     const cleaned = cleanCompanyData(mapped);
+    // Only the profile fields the form actually sent are changed; the rest stay as they are.
+    const profilePatch = {};
+    for (const k of PROFILE_FIELDS) if (body[k] !== undefined) profilePatch[k] = cleaned[k];
     if (!cleaned.companyName?.trim()) {
       return res.status(400).json({
         ok: false,
@@ -846,6 +884,10 @@ exports.updateHubCompany = async (req, res) => {
           message: "Another company on this city already uses that slug",
         });
       }
+      // The slug is the company's one URL everywhere, so it has to be free in the whole directory, not just on this page.
+      if (candidate !== nextSlug && (await ManagedItCompany.exists({ slug: candidate }))) {
+        return res.status(409).json({ ok: false, message: "Another company in the directory already uses that slug" });
+      }
       nextSlug = candidate;
     }
 
@@ -857,7 +899,10 @@ exports.updateHubCompany = async (req, res) => {
       imageUrl = fromClean || "";
     }
 
+    const currentPlain = typeof current.toObject === "function" ? current.toObject() : { ...current };
     const updated = {
+      ...currentPlain,
+      ...profilePatch,
       slug: nextSlug,
       companyName: cleaned.companyName,
       description: cleaned.description,
@@ -890,6 +935,27 @@ exports.updateHubCompany = async (req, res) => {
     city.hubCompanies[idx] = updated;
     city.markModified("hubCompanies");
     await city.save();
+
+    // The same company is also in the main directory and on its other city / state / country pages.
+    // Keep those copies in step with this edit (sponsorship stays per page).
+    try {
+      const oldSlug = String(current.slug || "").toLowerCase();
+      const { isSponsored, ...shared } = updated;
+      const dirFields = { ...shared, industry: (shared.industryTags || []).join(", ") };
+      delete dirFields.industryTags;
+      delete dirFields.vars;
+      await ManagedItCompany.updateOne({ slug: oldSlug }, { $set: dirFields });
+      const setObj = {};
+      for (const [k, v] of Object.entries(shared)) setObj[`hubCompanies.$[c].${k}`] = v;
+      await City.updateMany(
+        { _id: { $ne: city._id }, "hubCompanies.slug": oldSlug },
+        { $set: setObj },
+        { arrayFilters: [{ "c.slug": oldSlug, "c.isSponsored": { $ne: true } }] },
+      );
+      publicCache.clear();
+    } catch (syncErr) {
+      console.error("updateHubCompany sync:", syncErr?.message);
+    }
 
     res.json({ ok: true, data: { cityId: city._id, company: updated } });
   } catch (err) {
@@ -981,6 +1047,14 @@ exports.uploadCityCompaniesExcel = async (req, res) => {
       req.params.hubSlug ||
       req.query.hubSlug?.trim() ||
       HUB_MANAGED_IT;
+    // City, state and country pages are filled by the Master Sheet import now. This upload is only left for the
+    // Top MSSP (cybersecurity) country pages, which the master sheet does not cover.
+    if (hubSlug !== HUB_TOP_MSSP) {
+      return res.status(410).json({
+        ok: false,
+        message: "Company lists for city, state and country pages now come from the Master Sheet (Dashboard > Master Sheet).",
+      });
+    }
     const fileBuffer = req.files?.file?.[0]?.buffer;
 
     if (!citySlug || !fileBuffer) {
@@ -1014,16 +1088,17 @@ exports.uploadCityCompaniesExcel = async (req, res) => {
       });
     }
 
-    if (!workbook.Sheets["Companies"]) {
+    const sheetKey = ["Companies", "Master"].find((n) => workbook.Sheets[n]);
+    if (!sheetKey) {
       return res.status(400).json({
         ok: false,
-        message: "Excel file must contain a sheet named 'Companies'.",
+        message: "Excel file must contain a sheet named 'Companies' (or 'Master').",
       });
     }
 
     let companiesSheet;
     try {
-      companiesSheet = xlsx.utils.sheet_to_json(workbook.Sheets["Companies"]);
+      companiesSheet = xlsx.utils.sheet_to_json(workbook.Sheets[sheetKey]);
     } catch (e) {
       return res.status(400).json({
         ok: false,
@@ -1039,30 +1114,17 @@ exports.uploadCityCompaniesExcel = async (req, res) => {
       });
     }
 
-    // City hub pages stay capped at 50 rows per upload; country hub pages
-    // (hubSlug "top-msps" / "top-mssp") allow unlimited rows since a country
-    // can have far more companies than a single city.
-    const isCountryHub = hubSlug === HUB_TOP_MSPS || hubSlug === HUB_TOP_MSSP;
-    if (!isCountryHub && companiesSheet.length > 50) {
-      return res.status(400).json({
-        ok: false,
-        message: "Maximum 50 companies per upload. Split into multiple files.",
-      });
-    }
-
     const hubCompanies = [];
     const usedSlugs = new Set();
-    const seenNames = new Set();
+    const seenKeys = new Set();
 
     for (const row of companiesSheet) {
-      const companyName = String(row["Company Name"] ?? "").trim();
-      if (!companyName) continue;
-      const key = companyName.toLowerCase();
-      if (seenNames.has(key)) continue;
-      seenNames.add(key);
-
       const cleaned = cleanCompanyData(row);
       if (!cleaned.companyName) continue;
+      // Same website + city, or same name + city + state, is one company. A name alone is not enough.
+      const keys = dedupeKeys(cleaned);
+      if (keys.some((k) => seenKeys.has(k))) continue;
+      keys.forEach((k) => seenKeys.add(k));
 
       const slug = uniqueSlugForBatch(cleaned.companyName, usedSlugs);
       if (!slug) continue;
@@ -1096,31 +1158,20 @@ exports.searchCompanies = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 8, 20);
     if (!q) return res.json({ ok: true, data: [] });
 
-    const cities = await City.find({ hubSlug: HUB_MANAGED_IT, isPublished: true })
-      .select("slug name hubCompanies")
+    // One list of companies: the directory. (Searching every city page copy returned the same company many times.)
+    const rows = await ManagedItCompany.find({ companyName: new RegExp(escapeRegex(q), "i") })
+      .select("companyName slug image website companyCity companyState")
+      .limit(limit)
       .lean();
 
-    const regex = new RegExp(escapeRegex(q), "i");
-    const matches = [];
-
-    for (const city of cities) {
-      if (matches.length >= limit) break;
-      for (const company of city.hubCompanies || []) {
-        if (matches.length >= limit) break;
-        if (company.companyName && regex.test(company.companyName)) {
-          matches.push({
-            companyName: company.companyName,
-            slug: company.slug,
-            citySlug: city.slug,
-            cityName: city.name,
-            image: company.image || "",
-            website: company.website || "",
-            companyCity: company.companyCity || "",
-            companyState: company.companyState || "",
-          });
-        }
-      }
-    }
+    const matches = rows.map((c) => ({
+      companyName: c.companyName,
+      slug: c.slug,
+      image: c.image || "",
+      website: c.website || "",
+      companyCity: c.companyCity || "",
+      companyState: c.companyState || "",
+    }));
 
     res.json({ ok: true, data: matches });
   } catch (err) {
@@ -1189,78 +1240,6 @@ exports.findPublishedMspCountry = async (slugOrName, fallbackName) => {
   }
 
   return null;
-};
-
-/**
- * Append a Get Listed approval into that city's hubCompanies (separate from MIT sheet).
- * Throws err.code = "DUPLICATE" if that company name already exists on this city.
- */
-exports.appendListingCompanyToCity = async (city, listing) => {
-  const list = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
-  const nameKey = String(listing.companyName || "").trim().toLowerCase();
-  const existing = list.find(
-    (c) => String(c.companyName || "").trim().toLowerCase() === nameKey,
-  );
-  if (existing) {
-    const err = new Error("Company already listed in this city");
-    err.code = "DUPLICATE";
-    err.existing = existing;
-    throw err;
-  }
-
-  const usedSlugs = new Set(
-    list.map((c) => String(c.slug || "").toLowerCase()).filter(Boolean),
-  );
-  const slug = uniqueSlugForBatch(listing.companyName, usedSlugs);
-  if (!slug) {
-    const err = new Error("Could not create a company URL slug");
-    err.code = "BAD_SLUG";
-    throw err;
-  }
-
-  const founded = listing.foundedYear ? parseInt(listing.foundedYear, 10) : NaN;
-  const doc = {
-    slug,
-    companyName: listing.companyName,
-    description: listing.companyDescription || "",
-    address: listing.mainOfficeAddress || "",
-    companyStreet: "",
-    companyCity: city.name,
-    companyState: city.state || "",
-    companyCountry: String(listing.requestedCountry || "").trim() || "US",
-    companyPostalCode: "",
-    revenueSize: "",
-    companyServices: Array.isArray(listing.services) ? listing.services : [],
-    companyPartners: Array.isArray(listing.partners) ? listing.partners : [],
-    industryTags: listing.verticalFocus ? [listing.verticalFocus] : [],
-    keywords: Array.isArray(listing.certifications) ? listing.certifications : [],
-    employees: listing.companySize || "",
-    foundedYear: Number.isFinite(founded) ? founded : null,
-    phone: listing.phone || "",
-    image: listing.logoUrl || "",
-    website: listing.website || "",
-    linkedinUrl: listing.linkedinUrl || "",
-    facebookUrl: "",
-    twitterUrl: "",
-    naicsCodes: [],
-    sicCodes: [],
-    technologies: [],
-    vars: "",
-    isSponsored: listing.featuredAddon === true,
-  };
-
-  city.hubCompanies = list;
-  city.hubCompanies.push(doc);
-  city.markModified("hubCompanies");
-  await city.save();
-
-  await revalidateFrontend([
-    "/msp",
-    `/msp/${city.slug}`,
-    `/msp/${city.slug}/${slug}`,
-  ]);
-
-  return { slug, company: doc };
 };
 
 /**
