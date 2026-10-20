@@ -200,36 +200,58 @@ exports.getCityPublicByHub = async (req, res) => {
       return res.json(cached);
     }
 
-    const city = await City.findOne({
-      hubSlug,
-      slug: String(citySlug).toLowerCase(),
-      isPublished: true,
-    }).lean();
-
-    if (!city) {
-      return res.status(404).json({ ok: false, message: "City not found" });
-    }
-
-    const allCompanies = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
-
-    // Pagination is opt-in via ?page=&limit= (country hub pages use it; city hub
-    // pages omit it and keep receiving the full list, unchanged behavior).
+    // Pagination is opt-in via ?page=&limit= (the city, state and country pages use it). A page like the United States
+    // holds thousands of companies (about 12 MB), so for a paginated request the database only hands over the page
+    // text and the 50 companies of the page, never the whole list.
     const limitParam = parseInt(req.query.limit, 10);
     const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : null;
+    const match = { hubSlug, slug: String(citySlug).toLowerCase(), isPublished: true };
 
-    let companies = allCompanies;
+    let city;
+    let companies;
+    let companiesTotal;
     let pagination = null;
 
     if (limit) {
-      const sponsored = allCompanies.filter((c) => c && c.isSponsored === true);
-      const regular = allCompanies.filter((c) => !(c && c.isSponsored === true));
-      const totalPages = Math.max(1, Math.ceil(regular.length / limit));
+      const list = (cond) => ({ $filter: { input: { $ifNull: ["$hubCompanies", []] }, as: "c", cond } });
+      const isSponsored = { $eq: ["$$c.isSponsored", true] };
+
+      // 1) the page itself and how many companies it has (no company data leaves the database)
+      [city] = await City.aggregate([
+        { $match: match },
+        {
+          $project: {
+            name: 1, slug: 1, state: 1, heading: 1, metaTitle: 1, metaDescription: 1, content: 1, faqs: 1,
+            total: { $size: { $ifNull: ["$hubCompanies", []] } },
+            sponsoredCount: { $size: list(isSponsored) },
+          },
+        },
+      ]);
+      if (!city) {
+        return res.status(404).json({ ok: false, message: "City not found" });
+      }
+      const regularCount = city.total - city.sponsoredCount;
+      const totalPages = Math.max(1, Math.ceil(regularCount / limit));
       const pageParam = parseInt(req.query.page, 10);
       const page = Math.min(Math.max(1, Number.isFinite(pageParam) ? pageParam : 1), totalPages);
       const start = (page - 1) * limit;
 
-      companies = [...sponsored, ...regular.slice(start, start + limit)];
-      pagination = { page, limit, totalPages, totalCompanies: regular.length };
+      // 2) only the sponsored companies and the slice of regular companies for this page
+      const [rows] = await City.aggregate([
+        { $match: match },
+        { $project: { _id: 0, sponsored: list(isSponsored), regular: { $slice: [list({ $ne: ["$$c.isSponsored", true] }), start, limit] } } },
+      ]);
+      companies = [...((rows && rows.sponsored) || []), ...((rows && rows.regular) || [])];
+      companiesTotal = city.total;
+      pagination = { page, limit, totalPages, totalCompanies: regularCount };
+    } else {
+      // no pagination asked for: the full list, as before
+      city = await City.findOne(match).lean();
+      if (!city) {
+        return res.status(404).json({ ok: false, message: "City not found" });
+      }
+      companies = Array.isArray(city.hubCompanies) ? city.hubCompanies : [];
+      companiesTotal = companies.length;
     }
 
     const payload = {
@@ -244,7 +266,7 @@ exports.getCityPublicByHub = async (req, res) => {
         content: city.content || "",
         faqs: Array.isArray(city.faqs) ? city.faqs : [],
         companies,
-        companiesTotal: allCompanies.length,
+        companiesTotal,
         companiesSource: "hub",
         ...(pagination ? { pagination } : {}),
       },
