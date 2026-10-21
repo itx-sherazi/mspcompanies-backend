@@ -12,6 +12,10 @@ dotenv.config();
 
 const app = express();
 
+// The website server calls this API with INTERNAL_API_KEY so the anti-scraping limit never throttles it. Without the
+// key the limit is off for everyone, so say so at start up.
+if (!process.env.INTERNAL_API_KEY) console.warn("INTERNAL_API_KEY is not set: the public API rate limit is not enforced.");
+
 // Runs behind the nginx reverse proxy: trust its X-Forwarded-For so rate limits see the real client IP.
 app.set("trust proxy", 1);
 
@@ -75,5 +79,15 @@ app.use("/api/v1", require("./router/overviewRoutes"));
 app.use("/api/v1/vendors",          require("./router/vendorRoutes"));
 app.use("/api/v1/categories",       require("./router/categoryRoutes"));
 app.use("/api/v1/parent-categories", require("./router/parentCategoryRoutes"));
+
+// Any error that reaches here is answered as JSON. Client errors (a file that is too large, bad JSON) keep their
+// message, server errors do not leak details.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  if (err?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ ok: false, message: "The file is too large (25 MB at most)." });
+  const status = err?.status || err?.statusCode || 500;
+  if (status >= 500) console.error("unhandled error:", err);
+  res.status(status).json({ ok: false, message: status >= 500 ? "Server error" : err.message });
+});
 
 module.exports = app;

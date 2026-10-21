@@ -7,21 +7,23 @@ const { parseMasterBuffer } = require("./masterSheet");
 const { planDirectoryPages } = require("./placePlanner");
 const { MIN } = require("../config/cyberPages");
 
-const EXTRA_HEADERS = ["Live Slug"];
-
 /** Live Slug of every sheet row, by row number (the number parseMasterBuffer puts in `_row`). */
 function liveSlugsByRow(buffer) {
-  const wb = xlsx.read(buffer, { type: "buffer" });
+  const wb = xlsx.read(buffer, { type: "buffer", sheetRows: 20001 });
   const name = wb.SheetNames.includes("Master") ? "Master" : wb.SheetNames[0];
   const rows = xlsx.utils.sheet_to_json(wb.Sheets[name], { defval: "", raw: false });
   return new Map(rows.map((r, i) => [i + 2, String(r["Live Slug"] || "").trim()]));
 }
 
-function planCyber(buffer) {
-  const { companies, report } = parseMasterBuffer(buffer, { extraHeaders: EXTRA_HEADERS });
-  const live = liveSlugsByRow(buffer);
-  const plan = planDirectoryPages(companies, { min: MIN, minCountry: MIN, stateWinsName: true, dropSameAsParent: true }, { reservedSlug: (c) => live.get(c._row) || "" });
-  return { ...plan, report, noPage: plan.companies.filter((d) => !d.countryPageSlug).length };
+function parseCyber(buffer) {
+  const parsed = parseMasterBuffer(buffer, { extraHeaders: ["Live Slug"] });
+  if (parsed.companies.length) {
+    const live = liveSlugsByRow(buffer);
+    for (const c of parsed.companies) c._slug = live.get(c._row) || "";
+  }
+  return parsed;
 }
 
-module.exports = { planCyber };
+const buildCyber = (companies) => planDirectoryPages(companies, { min: MIN, minCountry: MIN, stateWinsName: true, dropSameAsParent: true });
+
+module.exports = { parseCyber, buildCyber };

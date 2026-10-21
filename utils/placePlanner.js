@@ -206,20 +206,22 @@ function toCompanyDoc(c, slug, pageSlugs) {
     googleMapsUrl: c.googleMapsUrl || "",
     faqs: Array.isArray(c.faqs) ? c.faqs : [],
     image: c.image || "",
-    isPublished: true,
+    // A company an admin has hidden stays hidden when a sheet updates it.
+    isPublished: c.isPublished !== false,
     ...pageSlugs,
   };
 }
 
 /**
- * Companies (already read from the sheet) -> company documents with unique slugs and page slugs, plus the pages.
- * `reservedSlugs` maps a company to a slug it must keep (the slug it already has on the live site).
+ * Companies -> company documents with unique slugs and page slugs, plus the pages. A company that carries a `_slug`
+ * (the slug it already has, on the live site or in the directory) keeps it. `_untouched` marks a stored company the
+ * sheet did not mention: the import only refreshes its page links.
  */
-function planDirectoryPages(companies, rules, { reservedSlug = () => "" } = {}) {
+function planDirectoryPages(companies, rules) {
   const plan = planPages(companies, rules);
   const used = new Set();
   const reserved = companies.map((c) => {
-    const r = slugOf(reservedSlug(c));
+    const r = slugOf(c._slug);
     if (r && !used.has(r)) { used.add(r); return r; }
     return "";
   });
@@ -228,11 +230,13 @@ function planDirectoryPages(companies, rules, { reservedSlug = () => "" } = {}) 
     const slug = reserved[i] || makeSlug(c, used);
     const cityPage = p.city && p.country ? plan.cityByKey.get(plan.cityKey(p)) || "" : "";
     const statePage = p.state && p.country ? plan.stateSlugByKey.get(`${norm(p.country)}|${norm(p.state)}`) || "" : "";
-    return toCompanyDoc(c, slug, {
+    const doc = toCompanyDoc(c, slug, {
       cityPageSlug: cityPage,
       statePageSlug: statePage,
       countryPageSlug: p.country ? plan.countrySlugByKey.get(norm(p.country)) || "" : "",
     });
+    if (c._untouched) doc._untouched = true;
+    return doc;
   });
   // A city-state (Berlin) has no city page of its own: the state page serves as its city page too.
   for (const d of docs) {
@@ -251,7 +255,7 @@ function planDirectoryPages(companies, rules, { reservedSlug = () => "" } = {}) 
     slug: pg.slug,
     type: pg.type,
     name: pg.name,
-    stateName: pg.type === "city" && pg.stateSlug ? pg.state : "",
+    stateName: pg.type === "city" ? pg.state : "",
     stateSlug: pg.stateSlug,
     countryName: pg.country,
     countrySlug: pg.countrySlug,

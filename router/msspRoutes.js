@@ -1,6 +1,6 @@
 const express = require("express");
 const csvUpload = require("../middleware/csvUpload");
-const { adminAuthMiddleware } = require("../middleware/adminAuthMiddleware");
+const { adminAuthMiddleware, requireRole } = require("../middleware/adminAuthMiddleware");
 const mssp = require("../controllers/msspController");
 
 const router = express.Router();
@@ -15,6 +15,6 @@ router.get("/mssp-pages",                                         mssp.listPages
 router.get("/mssp-pages/:slug",                                   mssp.getPage);
 
 // Admin
-router.post("/admin/mssp/upload", adminAuthMiddleware, csvUpload.fields([{ name: "file", maxCount: 1 }]), mssp.uploadSheet);
+router.post("/admin/mssp/upload", adminAuthMiddleware, requireRole("admin"), csvUpload.fields([{ name: "file", maxCount: 1 }]), mssp.uploadSheet);
 
 module.exports = router;

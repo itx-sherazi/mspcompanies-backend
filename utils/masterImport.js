@@ -2,8 +2,8 @@
  * Master sheet import: preview (no writes) or apply.
  *
  *  1. Read + clean + de-duplicate the sheet.
- *  2. Fill the main directory (ManagedItCompany): upsert by slug, then remove companies that are no longer
- *     in the sheet. The directory is never emptied first, so a failure half way cannot leave it blank.
+ *  2. Fill the main directory (ManagedItCompany): a company that is already there is updated (a blank cell never
+ *     wipes a stored value, the slug stays), a new company is added. Nothing is ever deleted.
  *  3. Fill every city / state / country page (City.hubCompanies). Companies marked sponsored are kept.
  *  4. No backup copy is kept anywhere. Run a preview first; applying replaces the data.
  */
@@ -14,7 +14,7 @@ const City = require("../models/City");
 const ManagedItCompany = require("../models/ManagedItCompany");
 const publicCache = require("./memoryCache");
 const { revalidateFrontend } = require("./revalidateFrontend");
-const { parseMasterBuffer, planDistribution, planDirectory, directoryToCleaned, dedupeKeys } = require("./masterSheet");
+const { parseMasterBuffer, planDistribution, planDirectory, mergeWithExisting } = require("./masterSheet");
 const { METRO_ENABLED } = require("../config/pageRules");
 const CATALOG = require("../config/pageCatalog.json");
 
@@ -50,31 +50,42 @@ function pagePath(page) {
   return `/msp/${page.slug}`;
 }
 
-async function runMasterImport({ buffer, apply = false, metro = METRO_ENABLED, replaceDirectory = true, createPages = true, withPlan = false, log = () => {} }) {
+async function runMasterImport({ buffer, apply = false, metro = METRO_ENABLED, createPages = true, withPlan = false, log = () => {} }) {
   const started = Date.now();
-  const { companies, report } = parseMasterBuffer(buffer);
+  const { companies: sheetCompanies, report } = parseMasterBuffer(buffer);
   log(`sheet read: ${report.kept} companies (${report.skippedDuplicates} duplicates skipped)`);
 
-  // Companies that came in through Get Listed live in the directory too. They are added to the sheet's
-  // companies, so they are placed on their pages again and are never deleted by an import. A company that
-  // is also in the sheet is taken from the sheet.
-  const listedDocs = await ManagedItCompany.find({ fromListing: true }).lean();
-  const inSheet = new Set(companies.flatMap((c) => dedupeKeys(c)));
-  let listedKept = 0;
-  for (const d of listedDocs) {
-    const c = directoryToCleaned(d);
-    if (dedupeKeys(c).some((k) => inSheet.has(k))) continue;
-    companies.push(c);
-    listedKept += 1;
+  // A sheet without companies changes nothing.
+  if (!sheetCompanies.length) {
+    const count = await ManagedItCompany.estimatedDocumentCount();
+    return {
+      ok: true,
+      ignored: true,
+      mode: apply ? "apply" : "preview",
+      message: "The sheet has no companies, so nothing was changed.",
+      sheet: report,
+      directory: { before: count, after: count, added: 0, updated: 0, kept: count },
+      pages: { total: 0, created: 0, updated: 0, skipped: 0, companiesPlaced: 0, removedFromPages: 0 },
+      warnings: [],
+      rows: [],
+      tookMs: Date.now() - started,
+    };
   }
-  report.listedKept = listedKept;
-  if (listedKept) log(`${listedKept} Get Listed companies kept`);
+
+  // The directory after the upload: the companies of the sheet (a company that is already there is updated and keeps
+  // its slug and any value the sheet leaves blank, a new one is added) plus every stored company the sheet does not
+  // mention (Get Listed companies included). Nothing is deleted, and the pages are filled from this whole list.
+  const existingDocs = await ManagedItCompany.find({}).lean();
+  const merged = mergeWithExisting(sheetCompanies, existingDocs);
+  const companies = merged.companies;
+  report.listedKept = existingDocs.filter((d) => d.fromListing).length;
 
   const pages = await City.find({ hubSlug: { $in: HUBS } })
     .select("name slug state hubSlug isPublished hubCompanies")
     .lean();
 
   const directoryDocs = planDirectory(companies); // also gives every company its one slug
+  directoryDocs.forEach((d, i) => { if (companies[i]._untouched) d._untouched = true; });
   // Pages that are in the catalog but not in the database yet are created from the sheet. Existing pages are
   // never touched except for their companies (their SEO text stays).
   const have = new Set(pages.map((p) => `${p.hubSlug}|${p.slug}`));
@@ -153,7 +164,7 @@ async function runMasterImport({ buffer, apply = false, metro = METRO_ENABLED, r
     mode: apply ? "apply" : "preview",
     metro: Boolean(metro),
     sheet: report,
-    directory: { before: directoryBefore, after: directoryDocs.length, replace: Boolean(replaceDirectory) },
+    directory: { before: directoryBefore, after: directoryDocs.length, added: merged.added, updated: merged.updated, kept: merged.untouched },
     pages: {
       total: pageRows.length,
       created: pageRows.filter((r) => r.willCreate).length,
@@ -173,20 +184,17 @@ async function runMasterImport({ buffer, apply = false, metro = METRO_ENABLED, r
 
   // ── apply ──
   // 1) main directory
-  const now = new Date();
+  // A company of the sheet is saved whole. A stored company the sheet does not mention only gets its page links refreshed.
+  const LINKS = ["cityPageSlug", "cityPageName", "statePageSlug", "statePageName", "countryPageSlug", "countryPageName"];
   for (let i = 0; i < directoryDocs.length; i += 500) {
-    const ops = directoryDocs.slice(i, i + 500).map((d) => ({
-      replaceOne: { filter: { slug: d.slug }, replacement: { ...d, createdAt: now, updatedAt: now }, upsert: true },
-    }));
+    const ops = directoryDocs.slice(i, i + 500).map(({ _untouched, ...d }) =>
+      _untouched
+        ? { updateOne: { filter: { slug: d.slug }, update: { $set: Object.fromEntries(LINKS.map((k) => [k, d[k]])) } } }
+        : { updateOne: { filter: { slug: d.slug }, update: { $set: d }, upsert: true } },
+    );
     await ManagedItCompany.bulkWrite(ops, { ordered: false });
   }
-  let directoryRemoved = 0;
-  if (replaceDirectory) {
-    const keep = directoryDocs.map((d) => d.slug);
-    const del = await ManagedItCompany.deleteMany({ slug: { $nin: keep } });
-    directoryRemoved = del.deletedCount || 0;
-  }
-  log(`directory saved: ${directoryDocs.length} companies, ${directoryRemoved} old ones removed`);
+  log(`directory saved: ${merged.added} added, ${merged.updated} updated, ${merged.untouched} left as they were`);
 
   // 2) pages
   const touched = [];
@@ -216,7 +224,6 @@ async function runMasterImport({ buffer, apply = false, metro = METRO_ENABLED, r
     for (let i = 0; i < toRevalidate.length; i += 40) await revalidateFrontend(toRevalidate.slice(i, i + 40));
   }
 
-  result.directory.removed = directoryRemoved;
   result.tookMs = Date.now() - started;
   return result;
 }

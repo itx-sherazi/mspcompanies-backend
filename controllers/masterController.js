@@ -1,7 +1,7 @@
 const { runMasterImport, buildReportWorkbook } = require("../utils/masterImport");
 
 /**
- * POST /api/v1/admin/master/upload   (multipart: file, mode=preview|apply, metro=0|1, replaceDirectory=0|1, createPages=0|1)
+ * POST /api/v1/admin/master/upload   (multipart: file, mode=preview|apply|report, metro=0|1, createPages=0|1)
  *
  * preview  = reads the sheet and shows exactly what would happen. Nothing is written.
  * report   = same as preview, but the answer is an Excel file with every company and the page it goes on.
@@ -19,7 +19,6 @@ exports.uploadMaster = async (req, res) => {
       buffer,
       apply,
       metro: flag(req.body.metro, undefined),
-      replaceDirectory: flag(req.body.replaceDirectory, true),
       createPages: flag(req.body.createPages, true),
       withPlan: mode === "report",
     });

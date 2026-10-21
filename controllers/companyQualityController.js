@@ -8,6 +8,7 @@ const mongoose = require("mongoose");
 const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
 const CyberSecurityCompany = require("../models/CyberSecurityCompany.js");
+const MsspCompany = require("../models/MsspCompany.js");
 const { fixText, findBadSequences } = require("../utils/badChars");
 const { revalidateFrontend } = require("../utils/revalidateFrontend");
 
@@ -22,6 +23,7 @@ const HUB_PATHS = {
 const FLAT_SOURCES = {
   mit: { model: ManagedItCompany, label: "Managed IT Services", path: "/managed-it-services" },
   cyber: { model: CyberSecurityCompany, label: "Cybersecurity Companies", path: "/cybersecurity-companies" },
+  mssp: { model: MsspCompany, label: "Managed Security Service Providers", path: "/managed-security-service-providers" },
 };
 
 // Fields shown on the public site that we scan for bad characters.

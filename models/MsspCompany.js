@@ -51,9 +51,9 @@ const msspCompanySchema = new mongoose.Schema(
 
 msspCompanySchema.index({ companyName: "text", description: "text", keywords: "text" });
 msspCompanySchema.index({ isPublished: 1, companyName: 1 });
-msspCompanySchema.index({ isPublished: 1, cityPageSlug: 1 });
-msspCompanySchema.index({ isPublished: 1, statePageSlug: 1 });
-msspCompanySchema.index({ isPublished: 1, countryPageSlug: 1 });
+// The public list sorts verified profiles first, for the whole directory and for each location page.
+msspCompanySchema.index({ isPublished: 1, indexEligible: -1, companyName: 1 });
+for (const field of ["cityPageSlug", "statePageSlug", "countryPageSlug"]) msspCompanySchema.index({ isPublished: 1, [field]: 1, indexEligible: -1, companyName: 1 });
 msspCompanySchema.index({ isPublished: 1, companyCountry: 1, companyState: 1, companyCity: 1 });
 
 module.exports = mongoose.model("MsspCompany", msspCompanySchema);

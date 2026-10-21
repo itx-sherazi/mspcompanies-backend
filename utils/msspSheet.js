@@ -6,10 +6,7 @@ const { parseMasterBuffer } = require("./masterSheet");
 const { planDirectoryPages } = require("./placePlanner");
 const { STATES, CITIES, MIN_COUNTRY } = require("../config/msspPages");
 
-function planMssp(buffer) {
-  const { companies, report } = parseMasterBuffer(buffer);
-  const plan = planDirectoryPages(companies, { states: STATES, cities: CITIES, minCountry: MIN_COUNTRY });
-  return { ...plan, report, noPage: plan.companies.filter((d) => !d.countryPageSlug).length };
-}
+const parseMssp = (buffer) => parseMasterBuffer(buffer);
+const buildMssp = (companies) => planDirectoryPages(companies, { states: STATES, cities: CITIES, minCountry: MIN_COUNTRY });
 
-module.exports = { planMssp };
+module.exports = { parseMssp, buildMssp };

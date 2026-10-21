@@ -18,11 +18,19 @@ function mailer() {
   return new Resend(process.env.RESEND_API_KEY);
 }
 
-// The directory a profile belongs to, from the page the claim was sent from.
+// The directory a profile belongs to, from the page the claim was sent from. The same company slug can exist in
+// more than one directory, so the directory is part of what makes two claims "the same".
+const MSSP_PREFIX = "/managed-security-service-providers";
+const CYBER_PREFIX = "/cybersecurity-companies";
 function directoryFor(pagePath) {
-  if (String(pagePath).startsWith("/managed-security-service-providers")) return MsspCompany;
-  if (String(pagePath).startsWith("/cybersecurity-companies")) return CyberSecurityCompany;
+  if (String(pagePath).startsWith(MSSP_PREFIX)) return MsspCompany;
+  if (String(pagePath).startsWith(CYBER_PREFIX)) return CyberSecurityCompany;
   return ManagedItCompany;
+}
+function samePathGroup(pagePath) {
+  if (String(pagePath).startsWith(MSSP_PREFIX)) return { $regex: `^${MSSP_PREFIX}` };
+  if (String(pagePath).startsWith(CYBER_PREFIX)) return { $regex: `^${CYBER_PREFIX}` };
+  return { $not: new RegExp(`^(${MSSP_PREFIX}|${CYBER_PREFIX})`) };
 }
 
 function siteUrl(path) {
@@ -83,6 +91,9 @@ exports.submitClaim = async (req, res) => {
   if (firstTooLong(body, { name: 100, email: 254, notes: 2000, companySlug: 200, companyName: 200, pagePath: 500 })) {
     return res.status(400).json({ ok: false, message: "One or more fields are too long." });
   }
+  if (pagePath && !/^\/[A-Za-z0-9\-_\/]*$/.test(pagePath)) {
+    return res.status(400).json({ ok: false, message: "Invalid page." });
+  }
   if (!isValidEmail(email)) {
     return res.status(400).json({ ok: false, message: "Please enter a valid email address." });
   }
@@ -97,20 +108,23 @@ exports.submitClaim = async (req, res) => {
   try {
     // The company's own website, to check that the email belongs to it.
     const company = await directoryFor(pagePath).findOne({ slug: companySlug }).select("website companyName").lean();
-    const companyWebsite = company?.website || "";
+    // A claim is only for a profile that exists. The company name in the emails always comes from our own data.
+    if (!company) return res.status(404).json({ ok: false, message: "We could not find this company profile." });
+    const companyWebsite = company.website || "";
     const domainMatch = sameCompanyDomain(email, companyWebsite);
 
     // The same person claiming the same profile again within a day: do not duplicate or email twice.
     const recent = await ClaimRequest.findOne({
       email,
       companySlug,
+      pagePath: samePathGroup(pagePath),
       createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
     }).select("_id").lean();
     if (recent) return res.json({ ok: true, message: "We already have your request for this profile. We will be in touch soon." });
 
     const claim = await ClaimRequest.create({
       companySlug,
-      companyName: company?.companyName || companyName,
+      companyName: company.companyName,
       companyWebsite,
       pagePath,
       name,

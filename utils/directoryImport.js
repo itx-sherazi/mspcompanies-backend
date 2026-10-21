@@ -2,44 +2,63 @@
  * Master sheet import for a directory with location pages (MSSP, cybersecurity): preview (no writes), report
  * (Excel), or apply.
  *
- *  1. Read + clean + de-duplicate the sheet, work out the pages (the plan function of the directory).
- *  2. Apply: upsert every company by slug, then remove the companies that are no longer in the sheet.
- *     The directory is never emptied first, so a failure half way cannot leave it blank.
- *  3. Apply: save the country / state / city pages the same way.
- *  4. No backup copy is kept anywhere. Run a preview first; applying replaces the data.
+ *  1. Read the sheet (at most 5,000 companies). A sheet with no companies is ignored.
+ *  2. Merge it with the companies already in the directory: a company that is already there is UPDATED (a blank
+ *     cell never wipes a stored value, the slug stays), a new company is ADDED. Nothing is ever deleted.
+ *  3. Work out the country / state / city pages from the whole directory, not only from the sheet.
+ *  4. Apply: save the companies and the pages. A page that no longer qualifies is unpublished, not deleted.
+ *  5. No backup copy is kept anywhere. Run a preview first.
  */
 const publicCache = require("./memoryCache");
 const { revalidateFrontend } = require("./revalidateFrontend");
+const { mergeWithExisting } = require("./masterSheet");
 
 const CHUNK = 500;
+const PAGE_LINKS = ["cityPageSlug", "statePageSlug", "countryPageSlug"];
 
-async function upsertAll(Model, docs) {
-  for (let i = 0; i < docs.length; i += CHUNK) {
-    await Model.bulkWrite(
-      docs.slice(i, i + CHUNK).map((d) => ({ updateOne: { filter: { slug: d.slug }, update: { $set: d }, upsert: true } })),
-      { ordered: false },
-    );
-  }
+async function bulkInChunks(Model, ops) {
+  for (let i = 0; i < ops.length; i += CHUNK) await Model.bulkWrite(ops.slice(i, i + CHUNK), { ordered: false });
 }
 
 /**
  * @param Company, Page   the two models
- * @param plan            (buffer) => { companies, pages, report }
+ * @param parse           (buffer) => { companies, report }   the sheet, cleaned
+ * @param build           (companies) => { companies, pages }  documents with slugs and the pages
  * @param pageUrl         (slug) => public path of a page
  * @param profileUrl      (slug) => public path of a company profile (for the report)
  * @param revalidate      public paths to refresh besides the pages
  */
-function createDirectoryImport({ Company, Page, plan, pageUrl, profileUrl, revalidate }) {
+function createDirectoryImport({ Company, Page, parse, build, pageUrl, profileUrl, revalidate }) {
   async function run({ buffer, apply = false, withPlan = false, log = () => {} }) {
     const started = Date.now();
-    const planned = plan(buffer);
-    const count = (type) => planned.pages.filter((p) => p.type === type).length;
+    const { companies: sheetCompanies, report } = parse(buffer);
     const [directoryBefore, pagesBefore] = await Promise.all([Company.estimatedDocumentCount(), Page.estimatedDocumentCount()]);
 
+    // A sheet without companies changes nothing.
+    if (!sheetCompanies.length) {
+      return {
+        ok: true,
+        ignored: true,
+        mode: apply ? "apply" : "preview",
+        message: "The sheet has no companies, so nothing was changed.",
+        sheet: report,
+        directory: { before: directoryBefore, after: directoryBefore, added: 0, updated: 0, kept: directoryBefore },
+        pages: { before: pagesBefore, total: pagesBefore, country: 0, state: 0, city: 0 },
+        rows: [],
+        warnings: [],
+        tookMs: Date.now() - started,
+      };
+    }
+
+    const existing = await Company.find({}).lean();
+    const merged = mergeWithExisting(sheetCompanies, existing);
+    const planned = build(merged.companies);
+    const count = (type) => planned.pages.filter((p) => p.type === type).length;
+
     const warnings = [];
-    if (planned.report.unknownHeaders.length) warnings.push(`Columns not saved (not in the master sheet): ${planned.report.unknownHeaders.join(", ")}`);
-    if (planned.report.skippedDuplicates) warnings.push(`${planned.report.skippedDuplicates} duplicate rows skipped, for example ${planned.report.duplicateExamples.slice(0, 3).join("; ")}`);
-    if (planned.report.skippedNoName) warnings.push(`${planned.report.skippedNoName} rows without a company name skipped.`);
+    if (report.unknownHeaders.length) warnings.push(`Columns not saved (not in the master sheet): ${report.unknownHeaders.join(", ")}`);
+    if (report.skippedDuplicates) warnings.push(`${report.skippedDuplicates} duplicate rows skipped, for example ${report.duplicateExamples.slice(0, 3).join("; ")}`);
+    if (report.skippedNoName) warnings.push(`${report.skippedNoName} rows without a company name skipped.`);
     const noCountry = planned.companies.filter((c) => !c.countryPageSlug).length;
     if (noCountry) warnings.push(`${noCountry} companies are on no country page (no country, or a country with too few companies). They stay in the directory.`);
     const noIndex = planned.companies.filter((c) => !c.indexEligible).length;
@@ -48,8 +67,8 @@ function createDirectoryImport({ Company, Page, plan, pageUrl, profileUrl, reval
     const result = {
       ok: true,
       mode: apply ? "apply" : "preview",
-      sheet: planned.report,
-      directory: { before: directoryBefore, after: planned.companies.length },
+      sheet: report,
+      directory: { before: directoryBefore, after: planned.companies.length, added: merged.added, updated: merged.updated, kept: merged.untouched },
       pages: { before: pagesBefore, total: planned.pages.length, country: count("country"), state: count("state"), city: count("city") },
       rows: planned.pages.map((p) => ({ slug: p.slug, url: pageUrl(p.slug), name: p.name, type: p.type, country: p.countryName, state: p.stateName, companies: p.companyCount })),
       warnings,
@@ -60,13 +79,25 @@ function createDirectoryImport({ Company, Page, plan, pageUrl, profileUrl, reval
       return result;
     }
 
-    await upsertAll(Company, planned.companies);
-    const gone = await Company.deleteMany({ slug: { $nin: planned.companies.map((c) => c.slug) } });
-    result.directory.removed = gone.deletedCount;
-    log(`companies saved: ${planned.companies.length}, removed: ${gone.deletedCount}`);
+    // Companies from the sheet (new or updated) are saved whole. A stored company the sheet does not mention only gets
+    // its page links refreshed, because the pages are worked out again from the whole directory.
+    const oldLinks = new Map(existing.map((d) => [d.slug, d]));
+    const ops = [];
+    for (const { _untouched, ...doc } of planned.companies) {
+      if (!_untouched) {
+        ops.push({ updateOne: { filter: { slug: doc.slug }, update: { $set: doc }, upsert: true } });
+        continue;
+      }
+      const old = oldLinks.get(doc.slug) || {};
+      if (PAGE_LINKS.some((k) => (old[k] || "") !== doc[k])) {
+        ops.push({ updateOne: { filter: { slug: doc.slug }, update: { $set: Object.fromEntries(PAGE_LINKS.map((k) => [k, doc[k]])) } } });
+      }
+    }
+    await bulkInChunks(Company, ops);
+    log(`companies saved: ${merged.added} added, ${merged.updated} updated, ${merged.untouched} left as they were`);
 
-    await upsertAll(Page, planned.pages);
-    await Page.deleteMany({ slug: { $nin: planned.pages.map((p) => p.slug) } });
+    await bulkInChunks(Page, planned.pages.map((p) => ({ updateOne: { filter: { slug: p.slug }, update: { $set: p }, upsert: true } })));
+    await Page.updateMany({ slug: { $nin: planned.pages.map((p) => p.slug) } }, { $set: { isPublished: false } });
     log(`pages saved: ${planned.pages.length}`);
     publicCache.clear();
 
@@ -88,11 +119,14 @@ function createDirectoryImport({ Company, Page, plan, pageUrl, profileUrl, reval
     const summary = [
       ["Mode", result.mode],
       ["Sheet rows", result.sheet.sheetRows],
-      ["Companies kept", result.sheet.kept],
+      ["Companies in the sheet", result.sheet.kept],
       ["Duplicates skipped", result.sheet.skippedDuplicates],
-      ["Index Eligible", result.sheet.indexEligible],
+      ["Companies added", result.directory.added],
+      ["Companies updated", result.directory.updated],
+      ["Companies left as they were", result.directory.kept],
       ["Directory before", result.directory.before],
       ["Directory after", result.directory.after],
+      ["Index Eligible in the sheet", result.sheet.indexEligible],
       ["Pages", `${result.pages.total} (${result.pages.country} country, ${result.pages.state} state, ${result.pages.city} city)`],
       ["Unknown columns (not saved)", (result.sheet.unknownHeaders || []).join(", ") || "none"],
     ];

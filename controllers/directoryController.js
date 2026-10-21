@@ -1,4 +1,12 @@
 const { escapeRegex, queryString } = require("../utils/escapeRegex");
+const publicCache = require("../utils/memoryCache");
+
+// Public searches are cheap to ask and costly to answer: every text is cut short, a list holds a few terms,
+// and a page number has a ceiling.
+const short = (v) => queryString(v).slice(0, 100);
+const MAX_LIST_TERMS = 5;
+const MAX_PAGE = 2000;
+const FILTERS_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Public + admin handlers of a company directory. One copy of the code serves both directories:
@@ -14,30 +22,30 @@ const c = {};
 /** GET <directory>?page=1&limit=50&state=CA&city=...&industry=...&service=...&technology=...&partner=...&q=... */
 c.listCompanies = async (req, res) => {
   try {
-    const page  = Math.max(1, parseInt(req.query.page  || "1",   10) || 1);
+    const page  = Math.min(MAX_PAGE, Math.max(1, parseInt(req.query.page  || "1",   10) || 1));
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "20", 10) || 20));
     const skip  = (page - 1) * limit;
 
     const filter = { isPublished: true };
     if (placeSlugs && req.query.place) {
-      const place = queryString(req.query.place).toLowerCase();
+      const place = short(req.query.place).toLowerCase();
       filter.$or = [{ cityPageSlug: place }, { statePageSlug: place }, { countryPageSlug: place }];
     }
-    if (req.query.state) filter.companyState = { $regex: new RegExp(`^${escapeRegex(queryString(req.query.state))}$`, "i") };
-    if (req.query.country) filter.companyCountry = { $regex: new RegExp(`^${escapeRegex(queryString(req.query.country))}$`, "i") };
+    if (req.query.state) filter.companyState = { $regex: new RegExp(`^${escapeRegex(short(req.query.state))}$`, "i") };
+    if (req.query.country) filter.companyCountry = { $regex: new RegExp(`^${escapeRegex(short(req.query.country))}$`, "i") };
 
     // city search  matches city, state, OR country
     if (req.query.city) {
-      const cityRe = new RegExp(escapeRegex(queryString(req.query.city)), "i");
+      const cityRe = new RegExp(escapeRegex(short(req.query.city)), "i");
       filter.$and = filter.$and || [];
       filter.$and.push({ $or: [{ companyCity: cityRe }, { companyState: cityRe }, { companyCountry: cityRe }] });
     }
 
-    if (req.query.industry) filter.industry = { $regex: new RegExp(escapeRegex(queryString(req.query.industry)), "i") };
+    if (req.query.industry) filter.industry = { $regex: new RegExp(escapeRegex(short(req.query.industry)), "i") };
 
     // services  comma-separated multiple values (AND logic: must have all)
     if (req.query.service) {
-      const svcs = queryString(req.query.service).split(",").map((s) => s.trim()).filter(Boolean);
+      const svcs = short(req.query.service).split(",").map((s) => s.trim()).filter(Boolean).slice(0, MAX_LIST_TERMS);
       if (svcs.length === 1) {
         filter.companyServices = { $elemMatch: { $regex: new RegExp(escapeRegex(svcs[0]), "i") } };
       } else if (svcs.length > 1) {
@@ -50,7 +58,7 @@ c.listCompanies = async (req, res) => {
 
     // partners  comma-separated multiple values (AND logic: must have all)
     if (req.query.partner) {
-      const prts = queryString(req.query.partner).split(",").map((p) => p.trim()).filter(Boolean);
+      const prts = short(req.query.partner).split(",").map((p) => p.trim()).filter(Boolean).slice(0, MAX_LIST_TERMS);
       if (prts.length === 1) {
         filter.companyPartners = { $elemMatch: { $regex: new RegExp(escapeRegex(prts[0]), "i") } };
       } else if (prts.length > 1) {
@@ -62,7 +70,7 @@ c.listCompanies = async (req, res) => {
     }
 
     if (req.query.q) {
-      const re = new RegExp(escapeRegex(queryString(req.query.q)), "i");
+      const re = new RegExp(escapeRegex(short(req.query.q)), "i");
       filter.$and = filter.$and || [];
       filter.$and.push({ $or: [{ companyName: re }, { description: re }, { keywords: re }] });
     }
@@ -87,6 +95,10 @@ c.listCompanies = async (req, res) => {
 /** GET /api/v1/managed-it-services/filters  distinct values for all filter dropdowns */
 c.getFilters = async (req, res) => {
   try {
+    // The filter lists change only when a sheet is applied (which clears the cache), so they are cached for a while.
+    const cacheKey = `filters|${Model.modelName}`;
+    const cached = publicCache.get(cacheKey);
+    if (cached) return res.json(cached);
     const base = { isPublished: true };
     const [states, countries, industries, servicesRaw, technologiesRaw, partnersRaw] = await Promise.all([
       Model.distinct("companyState",    { ...base, companyState:    { $nin: ["", null] } }),
@@ -112,7 +124,7 @@ c.getFilters = async (req, res) => {
         { $sort: { count: -1, name: 1 } },
       ]),
     ]);
-    res.json({
+    const payload = {
       ok: true,
       states:       clean(states),
       countries:    clean(countries),
@@ -122,7 +134,9 @@ c.getFilters = async (req, res) => {
       services:     clean(servicesRaw),
       technologies: clean(technologiesRaw),
       partners:     clean(partnersRaw),
-    });
+    };
+    publicCache.set(cacheKey, payload, FILTERS_TTL_MS);
+    res.json(payload);
   } catch (err) {
     console.error("getFilters:", err);
     res.status(500).json({ ok: false, message: "Server error" });
@@ -210,7 +224,7 @@ c.listAdmin = async (req, res) => {
     const skip  = (page - 1) * limit;
     const filter = {};
     if (req.query.q) {
-      const re = new RegExp(escapeRegex(queryString(req.query.q)), "i");
+      const re = new RegExp(escapeRegex(short(req.query.q)), "i");
       filter.$or = [{ companyName: re }, { companyCity: re }, { companyState: re }];
     }
     // Index Eligible filter: eligible=yes | no

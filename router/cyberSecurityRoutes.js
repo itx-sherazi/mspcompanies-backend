@@ -1,6 +1,6 @@
 const express = require("express");
 const csvUpload = require("../middleware/csvUpload");
-const { adminAuthMiddleware } = require("../middleware/adminAuthMiddleware");
+const { adminAuthMiddleware, requireRole } = require("../middleware/adminAuthMiddleware");
 const cyber = require("../controllers/cyberSecurityController");
 
 const router = express.Router();
@@ -15,8 +15,8 @@ router.get("/cybersecurity-pages",                     cyber.listPages);
 router.get("/cybersecurity-pages/:slug",               cyber.getPage);
 
 // Admin
-router.post(   "/admin/cybersecurity-companies/upload", adminAuthMiddleware, csvUpload.fields([{ name: "file", maxCount: 1 }]), cyber.uploadSheet);
+router.post(   "/admin/cybersecurity-companies/upload", adminAuthMiddleware, requireRole("admin"), csvUpload.fields([{ name: "file", maxCount: 1 }]), cyber.uploadSheet);
 router.get(    "/admin/cybersecurity-companies",        adminAuthMiddleware, cyber.listAdmin);
-router.delete( "/admin/cybersecurity-companies/:slug", adminAuthMiddleware, cyber.deleteCompany);
+router.delete( "/admin/cybersecurity-companies/:slug", adminAuthMiddleware, requireRole("admin"), cyber.deleteCompany);
 
 module.exports = router;

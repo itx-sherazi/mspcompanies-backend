@@ -193,7 +193,7 @@ exports.getOverview = async (req, res) => {
         // Unique companies. The breakdown below counts LISTINGS (the same company is listed on its city,
         // state and country page and in the directory), so its numbers add up to more than the total.
         total: mspUnique + msspCount + cyberCount,
-        totalIsUnique: true,
+        totalIsUnique: false,
         breakdown: [
           { key: "city", label: "Listings on city and state pages", count: city.companies, tab: "CityHub" },
           { key: "topMsps", label: "Listings on Top MSPs country pages", count: topMsps.companies, tab: "CountryHub" },

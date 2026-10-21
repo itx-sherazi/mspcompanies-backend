@@ -22,6 +22,11 @@ const KNOWN_HEADERS = [
   "SIC Codes", "NAICS Codes", "Employees Size", "ZIP Code", "Country", "LOGO", "FaceBook URL", "Twitter URL",
   "Company Linkedin URLs", "Phone Number", "Services", "VARS",
 ];
+// One upload may hold at most this many companies, and a sheet may not be larger than this (a tiny file can
+// declare a huge range and freeze the server while it is read).
+const MAX_UPLOAD_COMPANIES = 5000;
+const MAX_SHEET_ROWS = 20000;
+const MAX_SHEET_COLUMNS = 80;
 const REQUIRED_HEADERS = ["Company Name", "Website", "Company City", "Company State", "Company Country"];
 
 // ── text helpers ─────────────────────────────────────────────────────────
@@ -136,7 +141,7 @@ function ruleForPage(page, { metro = METRO_ENABLED } = {}) {
 function parseMasterBuffer(buffer, { extraHeaders = [] } = {}) {
   let workbook;
   try {
-    workbook = xlsx.read(buffer, { type: "buffer", cellText: false, cellNF: false, raw: false });
+    workbook = xlsx.read(buffer, { type: "buffer", cellText: false, cellNF: false, raw: false, sheetRows: MAX_SHEET_ROWS + 1 });
   } catch (e) {
     const err = new Error("Invalid Excel file.");
     err.detail = e.message;
@@ -144,8 +149,18 @@ function parseMasterBuffer(buffer, { extraHeaders = [] } = {}) {
   }
   const sheetName = workbook.SheetNames.includes("Master") ? "Master" : workbook.SheetNames[0];
   if (!sheetName) throw new Error("Excel file has no sheets.");
-  const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "", raw: false });
-  if (!rows.length) throw new Error("No rows found in the sheet.");
+  const sheet = workbook.Sheets[sheetName];
+  const range = sheet["!ref"] ? xlsx.utils.decode_range(sheet["!ref"]) : null;
+  if (range && (range.e.r >= MAX_SHEET_ROWS || range.e.c >= MAX_SHEET_COLUMNS)) {
+    const err = new Error(`The sheet is too large (more than ${MAX_SHEET_ROWS.toLocaleString("en-US")} rows or ${MAX_SHEET_COLUMNS} columns). Split it into smaller files.`);
+    err.status = 400;
+    throw err;
+  }
+  const rows = xlsx.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  // An empty sheet changes nothing: the callers see companies = [] and ignore the upload.
+  if (!rows.length) {
+    return { companies: [], report: { sheetName, sheetRows: 0, headers: 0, unknownHeaders: [], kept: 0, indexEligible: 0, withFaq: 0, skippedNoName: 0, skippedDuplicates: 0, duplicateExamples: [], empty: true } };
+  }
 
   const headers = Object.keys(rows[0]);
   const missingRequired = REQUIRED_HEADERS.filter((h) => !headers.includes(h));
@@ -155,6 +170,12 @@ function parseMasterBuffer(buffer, { extraHeaders = [] } = {}) {
     throw err;
   }
   const unknownHeaders = headers.filter((h) => !KNOWN_HEADERS.includes(h) && !extraHeaders.includes(h));
+  const named = rows.filter((r) => s(r["Company Name"])).length;
+  if (named > MAX_UPLOAD_COMPANIES) {
+    const err = new Error(`This sheet has ${named.toLocaleString("en-US")} companies. At most ${MAX_UPLOAD_COMPANIES.toLocaleString("en-US")} companies can be uploaded at a time, please split the file.`);
+    err.status = 400;
+    throw err;
+  }
 
   const seen = new Set();
   const companies = [];
@@ -179,6 +200,8 @@ function parseMasterBuffer(buffer, { extraHeaders = [] } = {}) {
     }
     keys.forEach((k) => seen.add(k));
     cleaned._row = i + 2;
+    // An empty Index Eligible cell is "not said", so an update must not switch an existing profile off.
+    cleaned._indexCell = s(row["Index Eligible"]) !== "";
     companies.push(cleaned);
   });
 
@@ -195,6 +218,7 @@ function parseMasterBuffer(buffer, { extraHeaders = [] } = {}) {
       skippedNoName: skipped.noName,
       skippedDuplicates: skipped.duplicates,
       duplicateExamples,
+      empty: companies.length === 0,
     },
   };
 }
@@ -326,6 +350,60 @@ function toDirectoryCompany(c, slug) {
   };
 }
 
+/** A stored directory document in the shape the engine works with (cleaned company). It keeps its own slug. */
+function existingToCleaned(d) {
+  return {
+    ...d,
+    industryTags: String(d.industry || "").split(",").map((x) => x.trim()).filter(Boolean),
+    _slug: d.slug,
+    _existing: true,
+    fromListing: Boolean(d.fromListing),
+  };
+}
+
+const isBlank = (v) => v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
+// Fields of a cleaned company that a new sheet may fill. A blank cell in the sheet never wipes stored data.
+const MERGE_FIELDS = [
+  "description", "address", "companyStreet", "companyCity", "companyState", "companyCountry", "companyPostalCode", "revenueSize",
+  "companyServices", "companyPartners", "industryTags", "keywords", "employees", "foundedYear", "phone", "image", "website",
+  "linkedinUrl", "facebookUrl", "twitterUrl", "technologies",
+  ...["profileSummary", "tagline", "industriesServed", "serviceArea", "certifications", "supportHours", "clientSizeFocus", "specialization", "complianceFrameworks", "bookingUrl", "googleMapsUrl", "faqs"],
+];
+
+/**
+ * An upload adds new companies and updates the ones that are already in the directory. Nothing is deleted.
+ *   sheetCompanies : cleaned companies of the sheet (parseMasterBuffer)
+ *   existingDocs   : the documents stored in the directory now
+ * Returns every company of the directory after the upload: the sheet companies (a match keeps the slug of the stored
+ * company and any value the sheet leaves blank) plus the stored companies the sheet does not mention.
+ */
+function mergeWithExisting(sheetCompanies, existingDocs) {
+  const existing = existingDocs.map(existingToCleaned);
+  const byKey = new Map();
+  for (const e of existing) for (const k of dedupeKeys(e)) if (!byKey.has(k)) byKey.set(k, e);
+  const matched = new Set();
+  let updated = 0;
+  let added = 0;
+  for (const c of sheetCompanies) {
+    const hit = dedupeKeys(c).map((k) => byKey.get(k)).find(Boolean);
+    if (!hit) {
+      added += 1;
+      continue;
+    }
+    matched.add(hit);
+    updated += 1;
+    c._slug = hit.slug;
+    c._existing = true;
+    for (const k of MERGE_FIELDS) if (isBlank(c[k]) && !isBlank(hit[k])) c[k] = hit[k];
+    if (!c._indexCell) c.indexEligible = Boolean(hit.indexEligible);
+    if (hit.isPublished === false) c.isPublished = false;
+    if (hit.fromListing) c.fromListing = true;
+    if (hit.listingRequestId) c.listingRequestId = hit.listingRequestId;
+  }
+  const untouched = existing.filter((e) => !matched.has(e)).map((e) => ({ ...e, _untouched: true }));
+  return { companies: [...sheetCompanies, ...untouched], added, updated, untouched: untouched.length };
+}
+
 /** A directory document in the shape the engine works with (cleaned company). */
 function directoryToCleaned(d) {
   return {
@@ -408,6 +486,9 @@ module.exports = {
   toHubCompany,
   toDirectoryCompany,
   directoryToCleaned,
+  existingToCleaned,
+  mergeWithExisting,
+  MAX_UPLOAD_COMPANIES,
   parseMasterBuffer,
   ruleForPage,
   planDistribution,
