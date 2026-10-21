@@ -207,30 +207,3 @@ exports.getBlogBySlug = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
-// GET /api/v1/latest-posts
-exports.getLatestPosts = async (req, res) => {
-  try {
-    const blogs = await Blog.find({ published: true })
-      .sort({ date: -1 })
-      .limit(5)
-      .select("title slug image date category");
-    res.json({ data: blogs });
-  } catch (error) {
-    console.error("getLatestPosts error:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-// GET /api/v1/get-sitemapblog
-exports.getBlogsSitemap = async (req, res) => {
-  try {
-    const blogs = await Blog.find({ published: true })
-      .sort({ date: -1 })
-      .select("slug updatedAt date");
-    res.json({ data: blogs });
-  } catch (error) {
-    console.error("getBlogsSitemap error:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
