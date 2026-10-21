@@ -1,3 +1,0 @@
-{
-  "ignore": ["backups/*", "scripts/*", "node_modules/*"]
-}

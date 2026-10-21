@@ -47,7 +47,7 @@ exports.login = async (req, res) => {
       return res.status(400).json({ ok: false, message: "Invalid email or password" });
     }
 
-    // bcrypt only. Legacy plaintext passwords are converted by scripts/hash-legacy-passwords.js
+    // Passwords are stored as bcrypt hashes only.
     const isMatch = await bcrypt.compare(password, user.password || "").catch(() => false);
     if (!isMatch) {
       return res.status(400).json({ ok: false, message: "Invalid email or password" });

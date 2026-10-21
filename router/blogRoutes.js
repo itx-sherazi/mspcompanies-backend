@@ -9,8 +9,6 @@ const {
   getAllBlogsAdmin,
   getBlogByIdAdmin,
   getBlogBySlug,
-  getLatestPosts,
-  getBlogsSitemap,
 } = require("../controllers/blogController");
 
 const router = express.Router();
@@ -26,8 +24,6 @@ const upload = multer({
 
 router.get("/get", getBlogs);
 router.get("/getById/:slug", getBlogBySlug);
-router.get("/latest-posts", getLatestPosts);
-router.get("/get-sitemapblog", getBlogsSitemap);
 
 // Admin
 router.get("/admin/all", adminAuthMiddleware, getAllBlogsAdmin);
