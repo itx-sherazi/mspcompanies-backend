@@ -46,6 +46,7 @@ app.use(
     "/api/v1/managed-security-service-providers",
     "/api/v1/mssp-pages",
     "/api/v1/cybersecurity-companies",
+    "/api/v1/cybersecurity-pages",
     "/api/v1/vendors",
     "/api/v1/companies/search",
     "/api/v1/public/hubs",

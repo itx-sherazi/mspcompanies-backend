@@ -133,7 +133,7 @@ function ruleForPage(page, { metro = METRO_ENABLED } = {}) {
  * @returns {{ companies: object[], report: object }}
  *   companies : cleaned, de-duplicated, each with `_row` (sheet row number)
  */
-function parseMasterBuffer(buffer) {
+function parseMasterBuffer(buffer, { extraHeaders = [] } = {}) {
   let workbook;
   try {
     workbook = xlsx.read(buffer, { type: "buffer", cellText: false, cellNF: false, raw: false });
@@ -154,7 +154,7 @@ function parseMasterBuffer(buffer) {
     err.status = 400;
     throw err;
   }
-  const unknownHeaders = headers.filter((h) => !KNOWN_HEADERS.includes(h));
+  const unknownHeaders = headers.filter((h) => !KNOWN_HEADERS.includes(h) && !extraHeaders.includes(h));
 
   const seen = new Set();
   const companies = [];

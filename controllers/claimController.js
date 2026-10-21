@@ -1,6 +1,8 @@
 const { Resend } = require("resend");
 const ClaimRequest = require("../models/ClaimRequest");
 const ManagedItCompany = require("../models/ManagedItCompany");
+const MsspCompany = require("../models/MsspCompany");
+const CyberSecurityCompany = require("../models/CyberSecurityCompany");
 const { escapeHtml, cleanSubject, isValidEmail, firstTooLong } = require("../utils/emailSafety");
 const { isFreeEmail, emailDomain, sameCompanyDomain } = require("../utils/freeEmailDomains");
 
@@ -14,6 +16,13 @@ const STATUSES = ["new", "contacted", "verified", "rejected"];
 function mailer() {
   if (!process.env.RESEND_API_KEY) return null;
   return new Resend(process.env.RESEND_API_KEY);
+}
+
+// The directory a profile belongs to, from the page the claim was sent from.
+function directoryFor(pagePath) {
+  if (String(pagePath).startsWith("/managed-security-service-providers")) return MsspCompany;
+  if (String(pagePath).startsWith("/cybersecurity-companies")) return CyberSecurityCompany;
+  return ManagedItCompany;
 }
 
 function siteUrl(path) {
@@ -87,7 +96,7 @@ exports.submitClaim = async (req, res) => {
 
   try {
     // The company's own website, to check that the email belongs to it.
-    const company = await ManagedItCompany.findOne({ slug: companySlug }).select("website companyName").lean();
+    const company = await directoryFor(pagePath).findOne({ slug: companySlug }).select("website companyName").lean();
     const companyWebsite = company?.website || "";
     const domainMatch = sameCompanyDomain(email, companyWebsite);
 
