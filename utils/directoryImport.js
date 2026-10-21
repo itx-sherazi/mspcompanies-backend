@@ -62,7 +62,7 @@ function createDirectoryImport({ Company, Page, parse, build, pageUrl, profileUr
     const noCountry = planned.companies.filter((c) => !c.countryPageSlug).length;
     if (noCountry) warnings.push(`${noCountry} companies are on no country page (no country, or a country with too few companies). They stay in the directory.`);
     const noIndex = planned.companies.filter((c) => !c.indexEligible).length;
-    if (noIndex) warnings.push(`${noIndex} of ${planned.companies.length} companies are not Index Eligible yet, so Google is told not to index their profiles.`);
+    if (noIndex) warnings.push(`${noIndex} of ${planned.companies.length} companies are not marked Index Eligible (Y). Profiles are only indexed when the website switch INDEX_PROFILES is on and the company is Index Eligible.`);
 
     const result = {
       ok: true,
