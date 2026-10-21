@@ -3,6 +3,8 @@
 // companyQualityController's own endpoints.
 const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
+const MsspCompany = require("../models/MsspCompany.js");
+const MsspPage = require("../models/MsspPage.js");
 const CyberSecurityCompany = require("../models/CyberSecurityCompany.js");
 const Vendor = require("../models/Vendor.js");
 const Category = require("../models/Category.js");
@@ -15,7 +17,6 @@ const ClaimRequest = require("../models/ClaimRequest.js");
 const HUBS = {
   "managed-service-providers": { tab: "CityHub", path: "/msp", label: "MSP city page" },
   "top-msps": { tab: "CountryHub", path: "/top-msps", label: "Top MSPs country page" },
-  "top-mssp": { tab: "MsspCountryHub", path: "/top-mssp", label: "Top MSSP country page" },
 };
 
 const LEAD_TYPES = [
@@ -53,7 +54,7 @@ async function hubStats() {
  * the per-store counts counts it several times. Companies from the master sheet share one slug everywhere,
  * so counting distinct slugs gives the real number.
  *   MSP side  : city / state / country pages + Managed IT directory
- *   MSSP side : Top MSSP pages + Cybersecurity directory
+ *   MSSP side : MSSP directory + Cybersecurity directory (separate stores)
  */
 async function distinctSlugs(hubSlugs, Directory) {
   const rows = await City.aggregate(
@@ -164,7 +165,7 @@ async function recentUpdates(limit = 10) {
 exports.getOverview = async (req, res) => {
   try {
     const isAdmin = req.user?.role === "admin";
-    const [hubs, mitCount, cyberCount, vendorCount, blogTotal, blogPublished, catTotal, catPublished, leads, updates, mspUnique, msspUnique, claimCounts] =
+    const [hubs, mitCount, cyberCount, vendorCount, blogTotal, blogPublished, catTotal, catPublished, leads, updates, mspUnique, msspCount, msspPages, msspPagesPublished, claimCounts] =
       await Promise.all([
         hubStats(),
         ManagedItCompany.countDocuments(),
@@ -177,25 +178,26 @@ exports.getOverview = async (req, res) => {
         isAdmin ? leadStats() : null,
         recentUpdates(),
         distinctSlugs(["managed-service-providers", "top-msps"], ManagedItCompany),
-        distinctSlugs(["top-mssp"], CyberSecurityCompany),
+        MsspCompany.estimatedDocumentCount(),
+        MsspPage.countDocuments(),
+        MsspPage.countDocuments({ isPublished: true }),
         isAdmin ? Promise.all([ClaimRequest.countDocuments({ status: "new" }), ClaimRequest.estimatedDocumentCount()]) : null,
       ]);
 
     const city = hubs["managed-service-providers"];
     const topMsps = hubs["top-msps"];
-    const topMssp = hubs["top-mssp"];
 
     res.json({
       ok: true,
       companies: {
         // Unique companies. The breakdown below counts LISTINGS (the same company is listed on its city,
         // state and country page and in the directory), so its numbers add up to more than the total.
-        total: mspUnique + msspUnique,
+        total: mspUnique + msspCount + cyberCount,
         totalIsUnique: true,
         breakdown: [
           { key: "city", label: "Listings on city and state pages", count: city.companies, tab: "CityHub" },
           { key: "topMsps", label: "Listings on Top MSPs country pages", count: topMsps.companies, tab: "CountryHub" },
-          { key: "topMssp", label: "Listings on Top MSSP country pages", count: topMssp.companies, tab: "MsspCountryHub" },
+          { key: "mssp", label: "MSSP directory", count: msspCount, tab: "MasterSheet" },
           { key: "mit", label: "Managed IT directory", count: mitCount, tab: "ManagedIT" },
           { key: "cyber", label: "Cybersecurity directory", count: cyberCount, tab: "CyberSecurity" },
         ],
@@ -204,7 +206,7 @@ exports.getOverview = async (req, res) => {
       pages: {
         city: { total: city.pages, published: city.published },
         topMsps: { total: topMsps.pages, published: topMsps.published },
-        topMssp: { total: topMssp.pages, published: topMssp.published },
+        mssp: { total: msspPages, published: msspPagesPublished },
         blogs: { total: blogTotal, published: blogPublished },
         categories: { total: catTotal, published: catPublished },
       },

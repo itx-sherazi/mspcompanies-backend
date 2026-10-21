@@ -43,6 +43,8 @@ app.use("/api/v1/login", loginLimiter);
 app.use(
   [
     "/api/v1/managed-it-services",
+    "/api/v1/managed-security-service-providers",
+    "/api/v1/mssp-pages",
     "/api/v1/cybersecurity-companies",
     "/api/v1/vendors",
     "/api/v1/companies/search",
@@ -65,6 +67,7 @@ app.use("/api/v1", require("./router/dataRequestRoutes"));
 app.use("/api/v1", require("./router/listingRequestRoutes"));
 app.use("/api/v1", require("./router/managedItRoutes"));
 app.use("/api/v1", require("./router/masterRoutes"));
+app.use("/api/v1", require("./router/msspRoutes"));
 app.use("/api/v1", require("./router/cyberSecurityRoutes"));
 app.use("/api/v1", require("./router/companyQualityRoutes"));
 app.use("/api/v1", require("./router/overviewRoutes"));

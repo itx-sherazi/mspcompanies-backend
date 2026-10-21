@@ -14,12 +14,10 @@ const { revalidateFrontend } = require("../utils/revalidateFrontend");
 const HUB_LABELS = {
   "managed-service-providers": "MSP city pages (/msp)",
   "top-msps": "Top MSPs country pages (/top-msps)",
-  "top-mssp": "Top MSSP country pages (/top-mssp)",
 };
 const HUB_PATHS = {
   "managed-service-providers": "/msp",
   "top-msps": "/top-msps",
-  "top-mssp": "/top-mssp",
 };
 const FLAT_SOURCES = {
   mit: { model: ManagedItCompany, label: "Managed IT Services", path: "/managed-it-services" },

@@ -1,24 +1,20 @@
-const xlsx =require("xlsx");
 const path = require("path");
 const publicCache = require("../utils/memoryCache");
 const fs = require("fs/promises");
 const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
 const cloudinary = require("../config/cloudinary.js");
-const { cleanCompanyData, createSafeSlug } = require("../utils/companyData");
+const { cleanCompanyData } = require("../utils/companyData");
 const { cleanHtml } = require("../utils/sanitizeHtml");
 const { revalidateFrontend } = require("../utils/revalidateFrontend");
 const { escapeRegex } = require("../utils/escapeRegex");
-const { dedupeKeys } = require("../utils/masterSheet");
 
 const HUB_MANAGED_IT = "managed-service-providers";
 const HUB_TOP_MSPS = "top-msps";
-const HUB_TOP_MSSP = "top-mssp";
 
 /** Public URL base for a given hub  used for revalidation paths. */
 function hubBasePath(hubSlug) {
   if (hubSlug === HUB_TOP_MSPS) return "/top-msps";
-  if (hubSlug === HUB_TOP_MSSP) return "/top-mssp";
   return "/msp";
 }
 
@@ -84,21 +80,6 @@ async function persistHubCompanyLogo(file, previousImageUrl) {
   }
 }
 
-/**
- * Build unique slug within this city's upload batch.
- */
-function uniqueSlugForBatch(companyName, usedSlugs) {
-  const base = createSafeSlug(companyName);
-  if (!base) return null;
-  let slug = base;
-  let n = 1;
-  while (usedSlugs.has(slug)) {
-    n += 1;
-    slug = `${base}-${n}`;
-  }
-  usedSlugs.add(slug);
-  return slug;
-}
 
 /** Master-sheet profile fields (Profile Summary, Tagline, Index Eligible ...). */
 const PROFILE_FIELDS = [
@@ -106,54 +87,6 @@ const PROFILE_FIELDS = [
   "clientSizeFocus", "specialization", "complianceFrameworks", "bookingUrl", "citySlug", "stateSlug", "countrySlug",
   "googleMapsUrl", "faqs",
 ];
-function pickProfileFields(src) {
-  const out = {};
-  for (const k of PROFILE_FIELDS) if (src && src[k] !== undefined) out[k] = src[k];
-  return out;
-}
-
-function cleanedToHubDoc(cleaned, slug) {
-  const fullAddress = [
-    cleaned.companyStreet,
-    cleaned.companyCity,
-    cleaned.companyState,
-    cleaned.companyCountry,
-    cleaned.companyPostalCode,
-  ]
-    .filter(Boolean)
-    .join(", ");
-
-  return {
-    slug,
-    companyName: cleaned.companyName,
-    description: cleaned.description || "",
-    address: cleaned.address || fullAddress || "",
-    companyStreet: cleaned.companyStreet || "",
-    companyCity: cleaned.companyCity || "",
-    companyState: cleaned.companyState || "",
-    companyCountry: cleaned.companyCountry || "",
-    companyPostalCode: cleaned.companyPostalCode || "",
-    revenueSize: cleaned.revenueSize || "",
-    companyServices: cleaned.companyServices || [],
-    companyPartners: cleaned.companyPartners || [],
-    industryTags: cleaned.industryTags || [],
-    keywords: cleaned.keywords || [],
-    employees: cleaned.employees || "",
-    foundedYear: cleaned.foundedYear ?? null,
-    phone: cleaned.phone || "",
-    image: cleaned.image || "",
-    website: cleaned.website || "",
-    linkedinUrl: cleaned.linkedinUrl || "",
-    facebookUrl: cleaned.facebookUrl || "",
-    twitterUrl: cleaned.twitterUrl || "",
-    naicsCodes: cleaned.naicsCodes || [],
-    sicCodes: cleaned.sicCodes || [],
-    technologies: cleaned.technologies || [],
-    vars: cleaned.vars || "",
-    ...pickProfileFields(cleaned),
-    isSponsored: false,
-  };
-}
 
 // --- Public (no auth) ---
 
@@ -280,55 +213,6 @@ exports.getCityPublicByHub = async (req, res) => {
   }
 };
 
-/** Single company on a page of the cybersecurity (top-mssp) hub. MSP companies only have the directory profile. */
-exports.getCityCompanyPublicByHub = async (req, res) => {
-  try {
-    const { hubSlug, citySlug, companySlug } = req.params;
-    if (hubSlug === HUB_MANAGED_IT || hubSlug === HUB_TOP_MSPS) {
-      return res.status(404).json({ ok: false, message: "MSP profiles live at /managed-it-services/{slug}" });
-    }
-
-    const city = await City.findOne({
-      hubSlug,
-      slug: String(citySlug).toLowerCase(),
-      isPublished: true,
-    })
-      .select("name slug state heading metaTitle metaDescription hubCompanies")
-      .lean();
-
-    if (!city) {
-      return res.status(404).json({ ok: false, message: "City not found" });
-    }
-
-    const wanted = String(companySlug).toLowerCase();
-    const company = (city.hubCompanies || []).find(
-      (c) => c.slug && String(c.slug).toLowerCase() === wanted,
-    );
-
-    if (!company) {
-      return res.status(404).json({ ok: false, message: "Company not found" });
-    }
-
-    res.set("Cache-Control", "private, no-store");
-    res.json({
-      ok: true,
-      data: {
-        city: {
-          name: city.name,
-          slug: city.slug,
-          state: city.state || "",
-          heading: city.heading || "",
-          metaTitle: city.metaTitle,
-          metaDescription: city.metaDescription,
-        },
-        company,
-      },
-    });
-  } catch (err) {
-    console.error("getCityCompanyPublicByHub:", err);
-    res.status(500).json({ ok: false, message: "Server error" });
-  }
-};
 
 /**
  * Compact tree for sitemap: published cities + company slugs + lastmod (city updatedAt).
@@ -1058,120 +942,6 @@ exports.deleteCity = async (req, res) => {
   }
 };
 
-exports.uploadCityCompaniesExcel = async (req, res) => {
-  try {
-    const citySlug =
-      req.body.citySlug?.trim() ||
-      req.params.citySlug ||
-      req.query.citySlug?.trim();
-    const hubSlug =
-      req.body.hubSlug?.trim() ||
-      req.params.hubSlug ||
-      req.query.hubSlug?.trim() ||
-      HUB_MANAGED_IT;
-    // City, state and country pages are filled by the Master Sheet import now. This upload is only left for the
-    // Top MSSP (cybersecurity) country pages, which the master sheet does not cover.
-    if (hubSlug !== HUB_TOP_MSSP) {
-      return res.status(410).json({
-        ok: false,
-        message: "Company lists for city, state and country pages now come from the Master Sheet (Dashboard > Master Sheet).",
-      });
-    }
-    const fileBuffer = req.files?.file?.[0]?.buffer;
-
-    if (!citySlug || !fileBuffer) {
-      return res.status(400).json({
-        ok: false,
-        message: "citySlug and Excel file (field: file) are required.",
-      });
-    }
-
-    const city = await City.findOne({
-      hubSlug,
-      slug: String(citySlug).toLowerCase(),
-    });
-    if (!city) {
-      return res.status(404).json({ ok: false, message: "City not found" });
-    }
-
-    let workbook;
-    try {
-      workbook = xlsx.read(fileBuffer, {
-        type: "buffer",
-        cellText: false,
-        cellNF: false,
-        raw: false,
-      });
-    } catch (e) {
-      return res.status(400).json({
-        ok: false,
-        message: "Invalid Excel file.",
-        error: e.message,
-      });
-    }
-
-    const sheetKey = ["Companies", "Master"].find((n) => workbook.Sheets[n]);
-    if (!sheetKey) {
-      return res.status(400).json({
-        ok: false,
-        message: "Excel file must contain a sheet named 'Companies' (or 'Master').",
-      });
-    }
-
-    let companiesSheet;
-    try {
-      companiesSheet = xlsx.utils.sheet_to_json(workbook.Sheets[sheetKey]);
-    } catch (e) {
-      return res.status(400).json({
-        ok: false,
-        message: "Could not read sheet data.",
-        error: e.message,
-      });
-    }
-
-    if (!companiesSheet.length) {
-      return res.status(400).json({
-        ok: false,
-        message: "No company rows found in the Companies sheet.",
-      });
-    }
-
-    const hubCompanies = [];
-    const usedSlugs = new Set();
-    const seenKeys = new Set();
-
-    for (const row of companiesSheet) {
-      const cleaned = cleanCompanyData(row);
-      if (!cleaned.companyName) continue;
-      // Same website + city, or same name + city + state, is one company. A name alone is not enough.
-      const keys = dedupeKeys(cleaned);
-      if (keys.some((k) => seenKeys.has(k))) continue;
-      keys.forEach((k) => seenKeys.add(k));
-
-      const slug = uniqueSlugForBatch(cleaned.companyName, usedSlugs);
-      if (!slug) continue;
-
-      hubCompanies.push(cleanedToHubDoc(cleaned, slug));
-    }
-
-    city.hubCompanies = hubCompanies;
-    await city.save();
-
-    res.status(200).json({
-      ok: true,
-      message: `Saved ${hubCompanies.length} companies on ${city.name} only (not added to main service directory).`,
-      count: hubCompanies.length,
-    });
-  } catch (err) {
-    console.error("uploadCityCompaniesExcel:", err);
-    res.status(500).json({
-      ok: false,
-      message: "Server error during upload",
-      error:
-        process.env.NODE_ENV === "development" ? err.message : undefined,
-    });
-  }
-};
 
 // Public: search companies by name across all cities
 exports.searchCompanies = async (req, res) => {

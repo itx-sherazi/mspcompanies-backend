@@ -1,10 +1,8 @@
 const express = require("express");
 const multer = require("multer");
-const csvUpload = require("../middleware/csvUpload.js");
 const { adminAuthMiddleware, requireRole } = require("../middleware/adminAuthMiddleware.js");
 const {
   getPublishedCitiesByHub,
-  getCityCompanyPublicByHub,
   getCityPublicByHub,
   getManagedItHubSitemapEntries,
   listCitiesAdmin,
@@ -15,7 +13,6 @@ const {
   deleteCity,
   deleteHubCompany,
   updateHubCompany,
-  uploadCityCompaniesExcel,
   toggleSponsoredHubCompany,
   searchCompanies,
   wipeListingCompanies,
@@ -38,10 +35,6 @@ router.get(
 );
 router.get("/public/hubs/:hubSlug/cities", getPublishedCitiesByHub);
 router.get("/companies/search", searchCompanies);
-router.get(
-  "/public/hubs/:hubSlug/cities/:citySlug/companies/:companySlug",
-  getCityCompanyPublicByHub,
-);
 router.get("/public/hubs/:hubSlug/cities/:citySlug", getCityPublicByHub);
 
 // Admin
@@ -71,12 +64,6 @@ router.delete(
   deleteHubCompany,
 );
 router.delete("/cities/:id", adminAuthMiddleware, deleteCity);
-router.post(
-  "/cities/upload-companies",
-  adminAuthMiddleware,
-  csvUpload.fields([{ name: "file", maxCount: 1 }]),
-  uploadCityCompaniesExcel,
-);
 router.post(
   "/admin/wipe-listing-companies",
   adminAuthMiddleware,
