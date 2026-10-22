@@ -152,8 +152,8 @@ async function recentUpdates(limit = 10) {
     ...blogs.map((b) => ({ kind: "Blog", name: b.title, path: `/blog/${b.slug}`, tab: "blog", published: b.published, updatedAt: b.updatedAt })),
     ...vendors.map((v) => ({ kind: "Vendor", name: v.name, path: `/tools/${v.slug}`, tab: "VendorDirectory", published: true, updatedAt: v.updatedAt })),
     ...categories.map((c) => ({ kind: "Vendor category", name: c.title, path: `/best/${c.slug}`, tab: "VendorDirectory", published: c.status === "published", updatedAt: c.updatedAt })),
-    ...(mit ? [{ kind: "Directory", name: "Managed IT Services", path: "/managed-it-services", tab: "ManagedIT", published: true, updatedAt: mit.updatedAt }] : []),
-    ...(cyber ? [{ kind: "Directory", name: "Cybersecurity Companies", path: "/cybersecurity-companies", tab: "CyberSecurity", published: true, updatedAt: cyber.updatedAt }] : []),
+    ...(mit ? [{ kind: "Directory", name: "Managed IT Services", path: "/managed-it-services", tab: "AllCompanies", published: true, updatedAt: mit.updatedAt }] : []),
+    ...(cyber ? [{ kind: "Directory", name: "Cybersecurity Companies", path: "/cybersecurity-companies", tab: "AllCompanies", published: true, updatedAt: cyber.updatedAt }] : []),
   ];
   return items
     .filter((i) => i.updatedAt)
@@ -197,9 +197,9 @@ exports.getOverview = async (req, res) => {
         breakdown: [
           { key: "city", label: "Listings on city and state pages", count: city.companies, tab: "CityHub" },
           { key: "topMsps", label: "Listings on Top MSPs country pages", count: topMsps.companies, tab: "CountryHub" },
-          { key: "mssp", label: "MSSP directory", count: msspCount, tab: "MasterSheet" },
-          { key: "mit", label: "Managed IT directory", count: mitCount, tab: "ManagedIT" },
-          { key: "cyber", label: "Cybersecurity directory", count: cyberCount, tab: "CyberSecurity" },
+          { key: "mssp", label: "MSSP directory", count: msspCount, tab: "AllCompanies" },
+          { key: "mit", label: "Managed IT directory", count: mitCount, tab: "AllCompanies" },
+          { key: "cyber", label: "Cybersecurity directory", count: cyberCount, tab: "AllCompanies" },
         ],
         vendors: vendorCount,
       },
