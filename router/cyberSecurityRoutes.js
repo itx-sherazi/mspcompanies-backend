@@ -19,4 +19,8 @@ router.post(   "/admin/cybersecurity-companies/upload", adminAuthMiddleware, req
 router.get(    "/admin/cybersecurity-companies",        adminAuthMiddleware, cyber.listAdmin);
 router.delete( "/admin/cybersecurity-companies/:slug", adminAuthMiddleware, requireRole("admin"), cyber.deleteCompany);
 
+router.get( "/admin/cybersecurity-pages",       adminAuthMiddleware, cyber.listPagesAdmin);
+router.get( "/admin/cybersecurity-pages/:slug", adminAuthMiddleware, cyber.getPageAdmin);
+router.put( "/admin/cybersecurity-pages/:slug", adminAuthMiddleware, cyber.updatePageAdmin);
+
 module.exports = router;

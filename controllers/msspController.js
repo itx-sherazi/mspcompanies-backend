@@ -7,5 +7,5 @@ module.exports = createPlaceDirectoryController({
   Company: MsspCompany,
   Page: MsspPage,
   importer: { run: runMsspImport, buildReportWorkbook },
-  reportName: "mssp-import-report.xlsx",
+  reportName: "mssp-import-report.xlsx", pagePath: (slug) => `/mssp/${slug}`, indexPaths: ["/managed-security-service-providers", "/mssp", "/sitemaps/mssp-sitemap"],
 });

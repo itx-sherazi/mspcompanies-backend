@@ -2,7 +2,7 @@
  * Master sheet import for a directory with location pages (MSSP, cybersecurity): preview (no writes), report
  * (Excel), or apply.
  *
- *  1. Read the sheet (at most 5,000 companies). A sheet with no companies is ignored.
+ *  1. Read the sheet (at most 10,000 companies). A sheet with no companies is ignored.
  *  2. Merge it with the companies already in the directory: a company that is already there is UPDATED (a blank
  *     cell never wipes a stored value, the slug stays), a new company is ADDED. Nothing is ever deleted.
  *  3. Work out the country / state / city pages from the whole directory, not only from the sheet.
@@ -29,6 +29,9 @@ async function bulkInChunks(Model, ops) {
  * @param revalidate      public paths to refresh besides the pages
  */
 function createDirectoryImport({ Company, Page, parse, build, pageUrl, profileUrl, revalidate }) {
+  // A new location page starts as a draft (not public, not in the sitemap) until it is published in the dashboard. A page
+  // that already exists keeps its published state, so a sheet never publishes or unpublishes a page on its own.
+  const pageUpsert = ({ isPublished, ...p }) => ({ updateOne: { filter: { slug: p.slug }, update: { $set: p, $setOnInsert: { isPublished: false } }, upsert: true } });
   async function run({ buffer, apply = false, withPlan = false, log = () => {} }) {
     const started = Date.now();
     const { companies: sheetCompanies, report } = parse(buffer);
@@ -96,7 +99,7 @@ function createDirectoryImport({ Company, Page, parse, build, pageUrl, profileUr
     await bulkInChunks(Company, ops);
     log(`companies saved: ${merged.added} added, ${merged.updated} updated, ${merged.untouched} left as they were`);
 
-    await bulkInChunks(Page, planned.pages.map((p) => ({ updateOne: { filter: { slug: p.slug }, update: { $set: p }, upsert: true } })));
+    await bulkInChunks(Page, planned.pages.map(pageUpsert));
     await Page.updateMany({ slug: { $nin: planned.pages.map((p) => p.slug) } }, { $set: { isPublished: false } });
     log(`pages saved: ${planned.pages.length}`);
     publicCache.clear();
@@ -129,7 +132,7 @@ function createDirectoryImport({ Company, Page, parse, build, pageUrl, profileUr
       }
     }
     await bulkInChunks(Company, ops);
-    await bulkInChunks(Page, planned.pages.map((p) => ({ updateOne: { filter: { slug: p.slug }, update: { $set: p }, upsert: true } })));
+    await bulkInChunks(Page, planned.pages.map(pageUpsert));
     await Page.updateMany({ slug: { $nin: planned.pages.map((p) => p.slug) } }, { $set: { isPublished: false } });
     publicCache.clear();
   }

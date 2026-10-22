@@ -24,7 +24,7 @@ const KNOWN_HEADERS = [
 ];
 // One upload may hold at most this many companies, and a sheet may not be larger than this (a tiny file can
 // declare a huge range and freeze the server while it is read).
-const MAX_UPLOAD_COMPANIES = 5000;
+const MAX_UPLOAD_COMPANIES = 10000;
 const MAX_SHEET_ROWS = 20000;
 const MAX_SHEET_COLUMNS = 80;
 const REQUIRED_HEADERS = ["Company Name", "Website", "Company City", "Company State", "Company Country"];

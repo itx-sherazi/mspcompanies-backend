@@ -7,5 +7,5 @@ module.exports = createPlaceDirectoryController({
   Company: CyberSecurityCompany,
   Page: CyberPage,
   importer: { run: runCyberImport, buildReportWorkbook },
-  reportName: "cybersecurity-import-report.xlsx",
+  reportName: "cybersecurity-import-report.xlsx", pagePath: (slug) => `/cybersecurity-companies-in-${slug}`, indexPaths: ["/cybersecurity-companies", "/sitemaps/cybersecurity-sitemap"],
 });

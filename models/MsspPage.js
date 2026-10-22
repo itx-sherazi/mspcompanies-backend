@@ -14,6 +14,12 @@ const msspPageSchema = new mongoose.Schema(
     countrySlug: { type: String, default: "" },
     companyCount: { type: Number, default: 0 },
     isPublished: { type: Boolean, default: true },
+    // Written in the dashboard. The sheet import never touches these.
+    heading: { type: String, default: "", trim: true },
+    metaTitle: { type: String, default: "", trim: true },
+    metaDescription: { type: String, default: "", trim: true },
+    content: { type: String, default: "" },
+    faqs: [{ _id: false, question: { type: String, trim: true }, answer: { type: String, trim: true } }],
   },
   { timestamps: true },
 );

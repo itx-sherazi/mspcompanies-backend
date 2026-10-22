@@ -17,4 +17,8 @@ router.get("/mssp-pages/:slug",                                   mssp.getPage);
 // Admin
 router.post("/admin/mssp/upload", adminAuthMiddleware, requireRole("admin"), csvUpload.fields([{ name: "file", maxCount: 1 }]), mssp.uploadSheet);
 
+router.get( "/admin/mssp-pages",       adminAuthMiddleware, mssp.listPagesAdmin);
+router.get( "/admin/mssp-pages/:slug", adminAuthMiddleware, mssp.getPageAdmin);
+router.put( "/admin/mssp-pages/:slug", adminAuthMiddleware, mssp.updatePageAdmin);
+
 module.exports = router;
