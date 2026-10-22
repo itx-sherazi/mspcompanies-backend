@@ -381,12 +381,20 @@ function mergeWithExisting(sheetCompanies, existingDocs) {
   const existing = existingDocs.map(existingToCleaned);
   const byKey = new Map();
   for (const e of existing) for (const k of dedupeKeys(e)) if (!byKey.has(k)) byKey.set(k, e);
+  // A sheet that carries the slug a company has now (cyber "Live Slug") is matched by that slug first. A stored company
+  // without a city is also matched by its website alone, because the sheet may have filled in the city.
+  const bySlug = new Map(existing.map((e) => [e.slug, e]));
+  const noCityByDomain = new Map();
+  for (const e of existing) if (!norm(e.companyCity) && domainOf(e.website) && !noCityByDomain.has(domainOf(e.website))) noCityByDomain.set(domainOf(e.website), e);
   const matched = new Set();
   let updated = 0;
   let added = 0;
   for (const c of sheetCompanies) {
-    const hit = dedupeKeys(c).map((k) => byKey.get(k)).find(Boolean);
-    if (!hit) {
+    const taken = (e) => e && !matched.has(e);
+    let hit = c._slug && bySlug.get(c._slug);
+    if (!taken(hit)) hit = dedupeKeys(c).map((k) => byKey.get(k)).find(taken);
+    if (!taken(hit) && domainOf(c.website)) hit = noCityByDomain.get(domainOf(c.website));
+    if (!taken(hit)) {
       added += 1;
       continue;
     }
