@@ -43,6 +43,9 @@ const vendorSchema = new mongoose.Schema(
     pros: { type: [String], default: [] },
     cons: { type: [String], default: [] },
     categories: { type: [String], default: [], index: true },
+    // A category page (/best/{category}) may send the "Visit website" button to its own page of the vendor.
+    // A category without a link here uses `website`.
+    categoryLinks: { type: [new mongoose.Schema({ category: { type: String, required: true }, url: { type: String, required: true } }, { _id: false })], default: [] },
     groups: { type: [String], default: [] },
     pageCount: { type: Number, default: 0 },
   },

@@ -9,6 +9,26 @@ function parseCSV(val) {
   return [];
 }
 
+/** [{ category, url }] (or { category: url }) -> clean list: a category slug and an http(s) link, at most 50. */
+function cleanCategoryLinks(val) {
+  const list = Array.isArray(val) ? val : val && typeof val === "object" ? Object.entries(val).map(([category, url]) => ({ category, url })) : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const category = String(item?.category || "").trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+    let url = String(item?.url || "").trim();
+    if (!category || !url || seen.has(category)) continue;
+    // a link with another scheme (javascript:, mailto:) is not a website link
+    if (/^[a-z][a-z0-9+.-]*:(?!\d)/i.test(url) && !/^https?:/i.test(url)) continue;
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+    if (!/^https?:\/\/[^\s"'<>]+$/i.test(url)) continue;
+    seen.add(category);
+    out.push({ category, url });
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
 function parseMspStatus(val) {
   const v = String(val || "").trim().toLowerCase();
   if (v === "yes" || v === "true") return "Yes";
@@ -140,6 +160,7 @@ exports.createVendor = async (req, res) => {
       groups:         parseCSV(req.body.groups),
       keywords:       parseCSV(req.body.keywords),
       technologies:   parseCSV(req.body.technologies),
+      categoryLinks:  cleanCategoryLinks(req.body.categoryLinks),
     });
 
     res.status(201).json({ ok: true, data: vendor });
@@ -171,6 +192,8 @@ exports.updateVendor = async (req, res) => {
     for (const f of arrayFields) {
       if (req.body[f] !== undefined) vendor[f] = parseCSV(req.body[f]);
     }
+
+    if (req.body.categoryLinks !== undefined) vendor.categoryLinks = cleanCategoryLinks(req.body.categoryLinks);
 
     await vendor.save();
     revalidateFrontend(["/tools", `/tools/${vendor.slug}`]);
