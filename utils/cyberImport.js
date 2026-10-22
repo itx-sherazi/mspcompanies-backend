@@ -3,7 +3,7 @@ const CyberPage = require("../models/CyberPage");
 const { parseCyber, buildCyber } = require("./cyberSheet");
 const { createDirectoryImport } = require("./directoryImport");
 
-const { run, buildReportWorkbook } = createDirectoryImport({
+const { run, buildReportWorkbook, relink } = createDirectoryImport({
   Company: CyberSecurityCompany,
   Page: CyberPage,
   parse: parseCyber,
@@ -13,4 +13,4 @@ const { run, buildReportWorkbook } = createDirectoryImport({
   revalidate: ["/cybersecurity-companies"],
 });
 
-module.exports = { runCyberImport: run, buildReportWorkbook };
+module.exports = { runCyberImport: run, buildReportWorkbook, relinkCyber: relink };

@@ -11,7 +11,7 @@
  */
 const publicCache = require("./memoryCache");
 const { revalidateFrontend } = require("./revalidateFrontend");
-const { mergeWithExisting } = require("./masterSheet");
+const { mergeWithExisting, existingToCleaned } = require("./masterSheet");
 
 const CHUNK = 500;
 const PAGE_LINKS = ["cityPageSlug", "statePageSlug", "countryPageSlug"];
@@ -112,6 +112,28 @@ function createDirectoryImport({ Company, Page, parse, build, pageUrl, profileUr
     return result;
   }
 
+  /**
+   * Work the location pages out again from the companies stored now, without a sheet. Used after a company is added,
+   * edited or deleted in the dashboard: a new city or state can move it to another page. Only the page links of the
+   * companies change, and the pages (their counts) are saved again.
+   */
+  async function relink() {
+    const existing = await Company.find({}).lean();
+    const planned = existing.length ? build(existing.map(existingToCleaned)) : { companies: [], pages: [] };
+    const old = new Map(existing.map((d) => [d.slug, d]));
+    const ops = [];
+    for (const doc of planned.companies) {
+      const was = old.get(doc.slug) || {};
+      if (PAGE_LINKS.some((k) => (was[k] || "") !== doc[k])) {
+        ops.push({ updateOne: { filter: { slug: doc.slug }, update: { $set: Object.fromEntries(PAGE_LINKS.map((k) => [k, doc[k]])) } } });
+      }
+    }
+    await bulkInChunks(Company, ops);
+    await bulkInChunks(Page, planned.pages.map((p) => ({ updateOne: { filter: { slug: p.slug }, update: { $set: p }, upsert: true } })));
+    await Page.updateMany({ slug: { $nin: planned.pages.map((p) => p.slug) } }, { $set: { isPublished: false } });
+    publicCache.clear();
+  }
+
   /** Excel report made from a preview: the pages, and the page every company lands on. */
   function buildReportWorkbook(result) {
     const xlsx = require("xlsx");
@@ -142,7 +164,7 @@ function createDirectoryImport({ Company, Page, parse, build, pageUrl, profileUr
     return xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
   }
 
-  return { run, buildReportWorkbook };
+  return { run, buildReportWorkbook, relink };
 }
 
 module.exports = { createDirectoryImport };

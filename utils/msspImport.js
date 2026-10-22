@@ -3,7 +3,7 @@ const MsspPage = require("../models/MsspPage");
 const { parseMssp, buildMssp } = require("./msspSheet");
 const { createDirectoryImport } = require("./directoryImport");
 
-const { run, buildReportWorkbook } = createDirectoryImport({
+const { run, buildReportWorkbook, relink } = createDirectoryImport({
   Company: MsspCompany,
   Page: MsspPage,
   parse: parseMssp,
@@ -13,4 +13,4 @@ const { run, buildReportWorkbook } = createDirectoryImport({
   revalidate: ["/managed-security-service-providers", "/mssp"],
 });
 
-module.exports = { runMsspImport: run, buildReportWorkbook };
+module.exports = { runMsspImport: run, buildReportWorkbook, relinkMssp: relink };
