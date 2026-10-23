@@ -5,6 +5,8 @@
  *   directory  mit | mssp | cyber
  *
  * Editing or deleting a Managed IT company also fixes its copy on the city, state and country pages (City.hubCompanies).
+ * Adding a Managed IT company, or changing its city, state or country, puts it on the pages it now belongs to and takes
+ * it off the others (placeCompanyOnPages), so it needs no Master Sheet upload.
  * After a change in the MSSP or cybersecurity directory the location pages are worked out again, because a changed
  * city or state can move a company to another page.
  */
@@ -19,6 +21,7 @@ const { escapeRegex, queryString } = require("../utils/escapeRegex");
 const { makeSlug, domainOf, norm } = require("../utils/masterSheet");
 const { relinkMssp } = require("../utils/msspImport");
 const { relinkCyber } = require("../utils/cyberImport");
+const { placeCompanyOnPages } = require("../utils/placeCompany");
 
 const DIRECTORIES = {
   mit: { Model: ManagedItCompany, label: "Managed IT", profilePath: "/managed-it-services" },
@@ -186,6 +189,7 @@ exports.createCompany = async (req, res) => {
     const slug = makeSlug({ companyName: data.companyName, companyCity: data.companyCity }, used);
     const doc = await dir.Model.create({ ...data, slug, isPublished: data.isPublished !== false });
     if (dir.relink) await dir.relink();
+    const placed = req.params.directory === "mit" ? await placeCompanyOnPages(slug) : null;
     publicCache.clear();
 
     // Already in another directory? Allowed (a company can be listed in two), but the page says so.
@@ -194,9 +198,10 @@ exports.createCompany = async (req, res) => {
     res.status(201).json({
       ok: true,
       data: { ...doc.toObject(), directory: req.params.directory },
+      placed,
       warning: [
         alsoIn.length ? `The same website is also in: ${alsoIn.join(", ")}.` : "",
-        req.params.directory === "mit" ? "It shows on its city, state and country pages after the next Master Sheet upload." : "",
+        placed && !placed.added.length ? "No city, state or country page matches this location yet." : "",
       ].filter(Boolean).join(" "),
     });
   } catch (err) {
@@ -214,12 +219,19 @@ exports.updateCompany = async (req, res) => {
     try { changes = cleanBody(req.body || {}); } catch (e) { return res.status(400).json({ ok: false, message: e.message, field: e.field }); }
     if (changes.companyName !== undefined && !changes.companyName) return res.status(400).json({ ok: false, message: "Company name is required", field: "companyName" });
     const slug = String(req.params.slug).toLowerCase();
+    const before = req.params.directory === "mit" ? await dir.Model.findOne({ slug }).select("companyCity companyState companyCountry").lean() : null;
     const doc = await dir.Model.findOneAndUpdate({ slug }, { $set: changes }, { returnDocument: "after", runValidators: true }).select("-__v").lean();
     if (!doc) return res.status(404).json({ ok: false, message: "Company not found" });
-    if (req.params.directory === "mit") await syncPageCopies(slug, changes);
+    let placed = null;
+    if (req.params.directory === "mit") {
+      await syncPageCopies(slug, changes);
+      // A new city, state or country can move the company to other pages.
+      const moved = ["companyCity", "companyState", "companyCountry"].some((k) => before && norm(before[k]) !== norm(doc[k]));
+      if (moved) placed = await placeCompanyOnPages(slug);
+    }
     if (dir.relink) await dir.relink();
     publicCache.clear();
-    res.json({ ok: true, data: { ...doc, directory: req.params.directory, profilePath: publicProfile(req.params.directory, slug) } });
+    res.json({ ok: true, data: { ...doc, directory: req.params.directory, profilePath: publicProfile(req.params.directory, slug) }, placed });
   } catch (err) {
     console.error("admin updateCompany:", err);
     res.status(500).json({ ok: false, message: "Server error" });
