@@ -22,6 +22,7 @@ const { makeSlug, domainOf, norm } = require("../utils/masterSheet");
 const { relinkMssp } = require("../utils/msspImport");
 const { relinkCyber } = require("../utils/cyberImport");
 const { placeCompanyOnPages } = require("../utils/placeCompany");
+const cloudinary = require("../config/cloudinary");
 
 const DIRECTORIES = {
   mit: { Model: ManagedItCompany, label: "Managed IT", profilePath: "/managed-it-services" },
@@ -99,6 +100,30 @@ async function syncPageCopies(slug, changes) {
   if (!Object.keys(set).length) return;
   await City.updateMany({ "hubCompanies.slug": slug }, { $set: set }, { arrayFilters: [{ "c.slug": slug }] });
 }
+
+// ── logo upload ─────────────────────────────────────────────────────────
+
+const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+/**
+ * POST /api/v1/admin/companies/upload-logo   (multipart, one file in the field "image")
+ * Sends the picture to Cloudinary and answers with its link. The dashboard puts the link in the Logo field of the
+ * company, and the company is saved as usual. SVG is refused: it can carry script.
+ */
+exports.uploadLogo = async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ ok: false, message: "Choose a picture to upload" });
+    if (!LOGO_TYPES.has(file.mimetype)) return res.status(400).json({ ok: false, message: "The picture must be a PNG, JPG, WEBP or GIF file" });
+    const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    // The same Cloudinary folder and preset as the logos of the city pages.
+    const result = await cloudinary.uploader.upload(dataUri, { folder: "hub-company", upload_preset: "firmo" });
+    res.status(201).json({ ok: true, url: result.secure_url });
+  } catch (err) {
+    console.error("admin uploadLogo:", err?.message || err);
+    res.status(502).json({ ok: false, message: "The picture could not be uploaded to Cloudinary. Try again." });
+  }
+};
 
 // ── list ────────────────────────────────────────────────────────────────
 
