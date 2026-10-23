@@ -1,5 +1,6 @@
 const ParentCategory = require("../models/ParentCategory");
 const Category       = require("../models/Category");
+const { isAdminRequest } = require("../utils/isAdminRequest");
 
 // GET /api/v1/parent-categories  all parent cats with their subcategory details
 exports.getParentCategories = async (req, res) => {
@@ -26,10 +27,14 @@ exports.getParentCategories = async (req, res) => {
     }
     if (cleanupOps.length) await Promise.all(cleanupOps);
 
-    const data = parents.map((p) => ({
-      ...p,
-      subcategoryDetails: p.subcategories.map((s) => catMap[s]),
-    }));
+    // The public sees the published categories only. The clean-up above looked at every category, so a draft is never
+    // mistaken for an orphan.
+    const admin = await isAdminRequest(req);
+    const shown = (s) => admin || catMap[s]?.status === "published";
+    const data = parents.map((p) => {
+      const subs = p.subcategories.filter(shown);
+      return { ...p, subcategories: subs, subcategoryDetails: subs.map((s) => catMap[s]) };
+    });
 
     res.json({ ok: true, data });
   } catch (err) {
@@ -48,12 +53,15 @@ exports.getParentCategoryBySlug = async (req, res) => {
       .select("slug title group status meta.title")
       .lean();
     const catMap = Object.fromEntries(cats.map((c) => [c.slug, c]));
+    const admin = await isAdminRequest(req);
+    const subs = parent.subcategories.filter((s) => admin || catMap[s]?.status === "published");
 
     res.json({
       ok: true,
       data: {
         ...parent,
-        subcategoryDetails: parent.subcategories.map((s) => catMap[s] || { slug: s, title: s }),
+        subcategories: subs,
+        subcategoryDetails: subs.map((s) => catMap[s] || { slug: s, title: s }),
       },
     });
   } catch (err) {

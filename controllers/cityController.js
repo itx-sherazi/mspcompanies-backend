@@ -265,6 +265,15 @@ exports.listCitiesAdmin = async (req, res) => {
           faqs: 1,
           createdAt: 1,
           updatedAt: 1,
+          // A page edited before editedAt existed has no edit time. When it has hand written text or questions, its
+          // updatedAt is the closest time there is (a sheet upload can move it later), so the list shows that, marked.
+          editedAt: {
+            $ifNull: [
+              "$editedAt",
+              { $cond: [{ $or: [{ $gt: [{ $strLenCP: { $ifNull: ["$content", ""] } }, 0] }, { $gt: [{ $size: { $ifNull: ["$faqs", []] } }, 0] }] }, "$updatedAt", null] },
+            ],
+          },
+          editedApprox: { $cond: [{ $ifNull: ["$editedAt", false] }, false, true] },
           companyCount: { $size: { $ifNull: ["$hubCompanies", []] } },
         },
       },
@@ -301,6 +310,7 @@ exports.getCityAdmin = async (req, res) => {
       "faqs",
       "createdAt",
       "updatedAt",
+      "editedAt",
       ...(wantContent ? ["content"] : []),
       ...(wantCompanies ? ["hubCompanies"] : []),
     ].join(" ");
@@ -597,6 +607,7 @@ exports.createCity = async (req, res) => {
       metaDescription: metaDescription.trim(),
       content: typeof content === "string" ? cleanHtml(content) : "",
       faqs: normalizeCityFaqs(faqs),
+      editedAt: new Date(),
       hubCompanies: [],
     });
 
@@ -687,6 +698,7 @@ exports.updateCity = async (req, res) => {
       city.faqs = normalizeCityFaqs(req.body.faqs);
     }
 
+    city.editedAt = new Date();
     await city.save();
     revalidateFrontend([hubBasePath(city.hubSlug), `${hubBasePath(city.hubSlug)}/${city.slug}`]);
     res.json({ ok: true, data: city });

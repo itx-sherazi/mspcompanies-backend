@@ -2,6 +2,9 @@ const Category       = require("../models/Category");
 const ParentCategory = require("../models/ParentCategory");
 const { cleanHtml } = require("../utils/sanitizeHtml");
 const { revalidateFrontend } = require("../utils/revalidateFrontend");
+// The list and the page of a category are public, but only published categories are shown to the public: a draft is
+// visible to the dashboard only.
+const { isAdminRequest } = require("../utils/isAdminRequest");
 
 function normalizeFaqs(input) {
   if (!Array.isArray(input)) return [];
@@ -60,6 +63,7 @@ exports.getCategories = async (req, res) => {
     const filter = {};
     if (group)  filter.group  = group;
     if (status) filter.status = status;
+    if (!(await isAdminRequest(req))) filter.status = "published";
 
     const categories = await Category.find(filter)
       .sort({ title: 1 })
@@ -77,7 +81,9 @@ exports.getCategories = async (req, res) => {
 exports.getCategoryBySlug = async (req, res) => {
   try {
     const category = await Category.findOne({ slug: req.params.slug }).lean();
-    if (!category) return res.status(404).json({ ok: false, error: "Category not found" });
+    if (!category || (category.status !== "published" && !(await isAdminRequest(req)))) {
+      return res.status(404).json({ ok: false, error: "Category not found" });
+    }
     res.json({ ok: true, data: category });
   } catch (err) {
     console.error("getCategoryBySlug error:", err);
@@ -120,7 +126,7 @@ exports.updateCategory = async (req, res) => {
     }
 
     await category.save();
-    revalidateFrontend(["/best", `/best/${category.slug}`]);
+    revalidateFrontend(["/best", `/best/${category.slug}`, "/sitemaps/best-sitemap"]);
     res.json({ ok: true, data: category });
   } catch (err) {
     console.error("updateCategory error:", err);
@@ -146,7 +152,7 @@ exports.updateCategoryRankings = async (req, res) => {
     })).filter((r) => r.vendorSlug);
 
     await category.save();
-    revalidateFrontend(["/best", `/best/${category.slug}`]);
+    revalidateFrontend(["/best", `/best/${category.slug}`, "/sitemaps/best-sitemap"]);
     res.json({ ok: true, data: category.vendorRankings });
   } catch (err) {
     console.error("updateCategoryRankings error:", err);

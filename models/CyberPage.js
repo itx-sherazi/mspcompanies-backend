@@ -20,6 +20,8 @@ const cyberPageSchema = new mongoose.Schema(
     metaDescription: { type: String, default: "", trim: true },
     content: { type: String, default: "" },
     faqs: [{ _id: false, question: { type: String, trim: true }, answer: { type: String, trim: true } }],
+    /** When the page was last edited by hand in the dashboard. A sheet import never changes it. */
+    editedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );

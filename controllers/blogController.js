@@ -178,8 +178,9 @@ exports.getAllBlogsAdmin = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const total = await Blog.countDocuments({});
+    // The most recently edited blog first.
     const blogs = await Blog.find({})
-      .sort({ date: -1 })
+      .sort({ updatedAt: -1, date: -1 })
       .skip(skip)
       .limit(limit)
       .select("-body");

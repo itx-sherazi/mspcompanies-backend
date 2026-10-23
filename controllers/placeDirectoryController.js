@@ -42,7 +42,7 @@ function createPlaceDirectoryController({ Company, Page, importer, reportName, p
   c.listPagesAdmin = async (req, res) => {
     try {
       const pages = await Page.find({})
-        .select("slug type name stateName stateSlug countryName countrySlug companyCount isPublished heading metaTitle metaDescription updatedAt")
+        .select("slug type name stateName stateSlug countryName countrySlug companyCount isPublished heading metaTitle metaDescription editedAt")
         .sort({ countryName: 1, type: 1, name: 1 })
         .lean();
       res.json({ ok: true, data: pages.map(({ heading, metaTitle, metaDescription, ...p }) => ({ ...p, hasMeta: Boolean(heading || metaTitle || metaDescription) })) });
@@ -84,6 +84,7 @@ function createPlaceDirectoryController({ Company, Page, importer, reportName, p
           .map((f) => ({ question: String((f && f.question) || "").trim().slice(0, 500), answer: String((f && f.answer) || "").trim().slice(0, 4000) }))
           .filter((f) => f.question && f.answer);
       }
+      set.editedAt = new Date();
       const page = await Page.findOneAndUpdate({ slug: String(req.params.slug).toLowerCase() }, { $set: set }, { returnDocument: "after" }).lean();
       if (!page) return res.status(404).json({ ok: false, message: "Page not found" });
       publicCache.clear();

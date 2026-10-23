@@ -85,6 +85,8 @@ const citySchema = new mongoose.Schema(
       },
     ],
     hubCompanies: { type: [hubCompanySchema], default: [] },
+    /** When the page was last edited by hand in the dashboard. A sheet import never changes it. */
+    editedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
