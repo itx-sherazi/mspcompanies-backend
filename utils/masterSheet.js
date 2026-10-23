@@ -309,7 +309,8 @@ function toHubCompany(c, slug) {
     sicCodes: c.sicCodes || [],
     technologies: c.technologies || [],
     vars: c.vars || "",
-    isSponsored: false,
+    // A company sponsored in the directory keeps its sponsored mark when a page is built again.
+    isSponsored: c.isSponsored === true,
     ...pickProfile(c),
   };
 }

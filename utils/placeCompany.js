@@ -43,18 +43,20 @@ async function placeCompanyOnPages(slug) {
 
     if (belongs && !copy) {
       const full = await City.findById(page._id).select("hubCompanies").lean();
-      const hub = toHubCompany(cleaned, slug);
+      const hub = toHubCompany(cleaned, slug); // carries the sponsored mark of the company
       if ((await docSize(page._id)) + JSON.stringify(hub).length * 2 > MAX_PAGE_DOC_BYTES) {
         result.skipped.push({ name: page.name, why: "the page is full" });
         continue;
       }
       // Same order as the import: sponsored companies first, then the others by how complete they are.
-      const sponsored = full.hubCompanies.filter((c) => c.isSponsored === true);
-      const others = sortForDisplay([...full.hubCompanies.filter((c) => c.isSponsored !== true), hub]);
+      const all = [...full.hubCompanies, hub];
+      const sponsored = all.filter((c) => c.isSponsored === true);
+      const others = sortForDisplay(all.filter((c) => c.isSponsored !== true));
       await City.updateOne({ _id: page._id }, { $set: { hubCompanies: [...sponsored, ...others] } });
       result.added.push({ name: page.name, path: pagePath(page) });
       touched.push(page);
-    } else if (!belongs && copy && copy.isSponsored !== true) {
+    } else if (!belongs && copy && (copy.isSponsored !== true || company.isSponsored === true)) {
+      // A copy marked sponsored on a page by hand stays. A company sponsored in the directory moves with its location.
       await City.updateOne({ _id: page._id }, { $pull: { hubCompanies: { slug } } });
       result.removed.push({ name: page.name, path: pagePath(page) });
       touched.push(page);

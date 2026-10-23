@@ -69,6 +69,7 @@ function cleanBody(body) {
     const n = parseInt(body.foundedYear, 10);
     out.foundedYear = Number.isFinite(n) && n > 1700 && n <= new Date().getFullYear() ? n : null;
   }
+  if (body.isSponsored !== undefined) out.isSponsored = body.isSponsored === true || /^(y|yes|true|1)$/i.test(String(body.isSponsored));
   if (body.indexEligible !== undefined) out.indexEligible = body.indexEligible === true || /^(y|yes|true|1)$/i.test(String(body.indexEligible));
   if (body.isPublished !== undefined) out.isPublished = !(body.isPublished === false || /^(n|no|false|0)$/i.test(String(body.isPublished)));
   if (body.faqs !== undefined) {
@@ -87,7 +88,7 @@ const publicProfile = (directory, slug) => `${DIRECTORIES[directory].profilePath
 const PAGE_COPY_FIELDS = [
   "companyName", "description", "address", "companyStreet", "companyCity", "companyState", "companyCountry", "companyPostalCode", "revenueSize",
   "companyServices", "companyPartners", "keywords", "employees", "foundedYear", "phone", "image", "website", "linkedinUrl", "facebookUrl",
-  "twitterUrl", "technologies", "profileSummary", "tagline", "industriesServed", "serviceArea", "certifications", "supportHours", "indexEligible",
+  "twitterUrl", "technologies", "profileSummary", "tagline", "industriesServed", "serviceArea", "certifications", "supportHours", "indexEligible", "isSponsored",
   "clientSizeFocus", "specialization", "complianceFrameworks", "bookingUrl", "googleMapsUrl", "faqs",
 ];
 
@@ -101,7 +102,7 @@ async function syncPageCopies(slug, changes) {
 
 // ── list ────────────────────────────────────────────────────────────────
 
-const LIST_FIELDS_OUT = { slug: 1, companyName: 1, companyCity: 1, companyState: 1, companyCountry: 1, employees: 1, website: 1, image: 1, indexEligible: 1, isPublished: 1, updatedAt: 1 };
+const LIST_FIELDS_OUT = { slug: 1, companyName: 1, companyCity: 1, companyState: 1, companyCountry: 1, employees: 1, website: 1, image: 1, indexEligible: 1, isPublished: 1, isSponsored: 1, updatedAt: 1 };
 
 function listFilter(query) {
   const filter = {};
@@ -187,6 +188,7 @@ exports.createCompany = async (req, res) => {
 
     const used = new Set((await dir.Model.find({}).select("slug").lean()).map((d) => d.slug));
     const slug = makeSlug({ companyName: data.companyName, companyCity: data.companyCity }, used);
+    if (req.params.directory !== "mit") delete data.isSponsored;
     const doc = await dir.Model.create({ ...data, slug, isPublished: data.isPublished !== false });
     if (dir.relink) await dir.relink();
     const placed = req.params.directory === "mit" ? await placeCompanyOnPages(slug) : null;
@@ -219,15 +221,16 @@ exports.updateCompany = async (req, res) => {
     try { changes = cleanBody(req.body || {}); } catch (e) { return res.status(400).json({ ok: false, message: e.message, field: e.field }); }
     if (changes.companyName !== undefined && !changes.companyName) return res.status(400).json({ ok: false, message: "Company name is required", field: "companyName" });
     const slug = String(req.params.slug).toLowerCase();
-    const before = req.params.directory === "mit" ? await dir.Model.findOne({ slug }).select("companyCity companyState companyCountry").lean() : null;
+    if (req.params.directory !== "mit") delete changes.isSponsored; // only Managed IT companies sit on city, state and country pages
     const doc = await dir.Model.findOneAndUpdate({ slug }, { $set: changes }, { returnDocument: "after", runValidators: true }).select("-__v").lean();
     if (!doc) return res.status(404).json({ ok: false, message: "Company not found" });
     let placed = null;
     if (req.params.directory === "mit") {
       await syncPageCopies(slug, changes);
-      // A new city, state or country can move the company to other pages.
-      const moved = ["companyCity", "companyState", "companyCountry"].some((k) => before && norm(before[k]) !== norm(doc[k]));
-      if (moved) placed = await placeCompanyOnPages(slug);
+      // Every save checks that the company is on the pages it belongs to and not on the others. A new city, state or
+      // country moves it, a sponsor mark puts it on its pages, and a company that was left on the wrong pages by an
+      // earlier save or an upload is put right the next time it is saved.
+      placed = await placeCompanyOnPages(slug);
     }
     if (dir.relink) await dir.relink();
     publicCache.clear();

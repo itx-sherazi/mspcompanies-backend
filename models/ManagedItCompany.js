@@ -54,6 +54,8 @@ const managedItCompanySchema = new mongoose.Schema(
     faqs: { type: [new mongoose.Schema({ question: { type: String, default: "" }, answer: { type: String, default: "" } }, { _id: false })], default: [] },
     image: { type: String, default: "" },
     isPublished: { type: Boolean, default: true },
+    /** Sponsored in the dashboard: its copy on every city, state and country page it belongs to is marked sponsored. */
+    isSponsored: { type: Boolean, default: false },
     /** Came from an approved Get Listed request. Every Master Sheet import keeps these. */
     fromListing: { type: Boolean, default: false, index: true },
     listingRequestId: { type: String, default: "" },
