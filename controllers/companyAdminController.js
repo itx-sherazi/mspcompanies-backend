@@ -116,12 +116,15 @@ exports.uploadLogo = async (req, res) => {
     if (!file) return res.status(400).json({ ok: false, message: "Choose a picture to upload" });
     if (!LOGO_TYPES.has(file.mimetype)) return res.status(400).json({ ok: false, message: "The picture must be a PNG, JPG, WEBP or GIF file" });
     const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-    // The same Cloudinary folder and preset as the logos of the city pages.
-    const result = await cloudinary.uploader.upload(dataUri, { folder: "hub-company", upload_preset: "firmo" });
+    // The same Cloudinary folder as the logos of the city pages. No upload preset: the account in .env has none, and a signed
+    // upload does not need one.
+    const result = await cloudinary.uploader.upload(dataUri, { folder: "hub-company" });
     res.status(201).json({ ok: true, url: result.secure_url });
   } catch (err) {
-    console.error("admin uploadLogo:", err?.message || err);
-    res.status(502).json({ ok: false, message: "The picture could not be uploaded to Cloudinary. Try again." });
+    // Cloudinary says what is wrong (for example a wrong key), so the dashboard shows it.
+    const why = String(err?.message || err?.error?.message || "").slice(0, 200);
+    console.error("admin uploadLogo:", why);
+    res.status(502).json({ ok: false, message: `The picture could not be uploaded to Cloudinary${why ? ` (${why})` : ""}. Try again.` });
   }
 };
 

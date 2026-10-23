@@ -65,7 +65,6 @@ async function persistHubCompanyLogo(file, previousImageUrl) {
     const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
     const result = await cloudinary.uploader.upload(dataUri, {
       folder: "hub-company",
-      upload_preset: "firmo",
     });
     return result.secure_url;
   } catch (err) {
