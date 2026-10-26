@@ -12,6 +12,7 @@ const {
   updateListingMail,
   deleteListingRequest,
 } = require("../controllers/listingRequestController");
+const { exportListingRequests } = require("../controllers/listingExport"); // TEMPORARY, with the export line below
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -27,6 +28,7 @@ router.get("/listing-request/check", checkCompanyName);
 router.post("/listing-request", formLimiter(), upload.single("logo"), submitListingRequest);
 
 // Admin
+router.get("/listing-requests/export", adminAuth, requireRole("admin"), exportListingRequests); // TEMPORARY
 router.get("/listing-requests", adminAuth, requireRole("admin"), getAllListingRequests);
 router.patch("/listing-requests/:id/status", adminAuth, requireRole("admin"), updateListingStatus);
 router.patch("/listing-requests/:id/deal", adminAuth, requireRole("admin"), updateListingDeal);
