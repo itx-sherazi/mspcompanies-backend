@@ -8,6 +8,8 @@ const {
   checkCompanyName,
   getAllListingRequests,
   updateListingStatus,
+  updateListingDeal,
+  updateListingMail,
   deleteListingRequest,
 } = require("../controllers/listingRequestController");
 
@@ -27,6 +29,8 @@ router.post("/listing-request", formLimiter(), upload.single("logo"), submitList
 // Admin
 router.get("/listing-requests", adminAuth, requireRole("admin"), getAllListingRequests);
 router.patch("/listing-requests/:id/status", adminAuth, requireRole("admin"), updateListingStatus);
+router.patch("/listing-requests/:id/deal", adminAuth, requireRole("admin"), updateListingDeal);
+router.patch("/listing-requests/:id/mail", adminAuth, requireRole("admin"), updateListingMail);
 router.delete("/listing-requests/:id", adminAuth, requireRole("admin"), deleteListingRequest);
 
 module.exports = router;

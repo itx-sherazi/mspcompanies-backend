@@ -23,6 +23,7 @@ const { relinkMssp } = require("../utils/msspImport");
 const { relinkCyber } = require("../utils/cyberImport");
 const { placeCompanyOnPages } = require("../utils/placeCompany");
 const cloudinary = require("../config/cloudinary");
+const { removeManagedItCompany, deletePictures } = require("../utils/removeCompany");
 
 const DIRECTORIES = {
   mit: { Model: ManagedItCompany, label: "Managed IT", profilePath: "/managed-it-services" },
@@ -275,12 +276,20 @@ exports.deleteCompany = async (req, res) => {
     const dir = directoryOf(req, res);
     if (!dir) return;
     const slug = String(req.params.slug).toLowerCase();
-    const doc = await dir.Model.findOneAndDelete({ slug });
-    if (!doc) return res.status(404).json({ ok: false, message: "Company not found" });
-    if (req.params.directory === "mit") await City.updateMany({ "hubCompanies.slug": slug }, { $pull: { hubCompanies: { slug } } });
+    // Managed IT: the directory entry, every page copy and the pictures. The other directories: the entry and its picture.
+    let removed;
+    if (req.params.directory === "mit") {
+      removed = await removeManagedItCompany(slug);
+      if (!removed.found) return res.status(404).json({ ok: false, message: "Company not found" });
+    } else {
+      const doc = await dir.Model.findOneAndDelete({ slug });
+      if (!doc) return res.status(404).json({ ok: false, message: "Company not found" });
+      const used = async (url) => Boolean(await dir.Model.exists({ image: url }));
+      removed = { found: true, pages: [], pictures: await deletePictures([doc.image].filter(Boolean), { alsoCheck: used }) };
+    }
     if (dir.relink) await dir.relink();
     publicCache.clear();
-    res.json({ ok: true, message: "Company deleted" });
+    res.json({ ok: true, message: "Company deleted", removed: { pages: removed.pages, pictures: removed.pictures } });
   } catch (err) {
     console.error("admin deleteCompany:", err);
     res.status(500).json({ ok: false, message: "Server error" });

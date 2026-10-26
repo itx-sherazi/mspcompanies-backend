@@ -51,6 +51,17 @@ const listingRequestSchema = new mongoose.Schema(
       default: "pending",
     },
     adminNote: { type: String, trim: true, default: "" },
+
+    // The deal with the company, kept apart from the listing status above: who pays and when, who is not interested,
+    // who gives a link in exchange. Filled in by hand in the dashboard.
+    deal: { type: String, enum: ["new", "following_up", "paid", "link_exchange", "not_interested"], default: "new", index: true },
+    dealUpdatedAt: { type: Date, default: null },
+    paidAt: { type: Date, default: null },
+    paidAmount: { type: Number, default: null },
+    linkExchangeUrl: { type: String, trim: true, default: "" },
+    // Ticked by hand when the company has been written to.
+    mailSent: { type: Boolean, default: false, index: true },
+    mailSentAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

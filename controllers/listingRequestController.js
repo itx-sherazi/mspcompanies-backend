@@ -5,6 +5,7 @@ const cloudinary = require("../config/cloudinary");
 const nodemailer = require("nodemailer");
 const { escapeFields, safeUrl, cleanSubject, isValidEmail, firstTooLong } = require("../utils/emailSafety");
 const { escapeRegex } = require("../utils/escapeRegex");
+const { removeManagedItCompany, deletePictures } = require("../utils/removeCompany");
 const {
   findPublishedMspCity,
   findPublishedMspCountry,
@@ -368,22 +369,94 @@ exports.checkCompanyName = async (req, res) => {
   }
 };
 
-// ADMIN: Get all listing requests
+const DEALS = ["new", "following_up", "paid", "link_exchange", "not_interested"];
+
+// ADMIN: Get all listing requests. ?deal= filters by deal, ?q= searches the company name, email and website.
+// `deals` counts every request by deal (not only the filtered ones), for the chips of the dashboard.
 exports.getAllListingRequests = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, deal, mail, q, page = 1, limit = 20 } = req.query;
     const filter = {};
     if (status && ["pending", "approved", "rejected"].includes(status)) {
       filter.status = status;
     }
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const [requests, total] = await Promise.all([
-      ListingRequest.find(filter).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)),
+    if (deal && DEALS.includes(deal)) filter.deal = deal === "new" ? { $in: ["new", null] } : deal;
+    if (mail === "sent") filter.mailSent = true;
+    else if (mail === "pending") filter.mailSent = { $ne: true };
+    const term = String(q || "").trim().slice(0, 80);
+    if (term) {
+      const re = new RegExp(escapeRegex(term), "i");
+      filter.$or = [{ companyName: re }, { contactEmail: re }, { website: re }];
+    }
+    const perPage = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const skip = (Math.max(1, parseInt(page) || 1) - 1) * perPage;
+    const [requests, total, byDeal, paid, mailSent] = await Promise.all([
+      ListingRequest.find(filter).sort({ createdAt: -1 }).skip(skip).limit(perPage),
       ListingRequest.countDocuments(filter),
+      ListingRequest.aggregate([{ $group: { _id: { $ifNull: ["$deal", "new"] }, n: { $sum: 1 } } }]),
+      ListingRequest.aggregate([{ $match: { deal: "paid" } }, { $group: { _id: null, amount: { $sum: { $ifNull: ["$paidAmount", 0] } } } }]),
+      ListingRequest.countDocuments({ mailSent: true }),
     ]);
-    res.json({ ok: true, data: requests, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+    const all = Object.values(Object.fromEntries(byDeal.map((r) => [r._id, r.n]))).reduce((a, b) => a + b, 0);
+    const deals = Object.fromEntries(DEALS.map((d) => [d, 0]));
+    for (const r of byDeal) if (deals[r._id] !== undefined) deals[r._id] = r.n;
+    res.json({ ok: true, data: requests, total, deals, mails: { sent: mailSent, pending: all - mailSent }, paidTotal: paid[0]?.amount || 0, page: Math.max(1, parseInt(page) || 1), pages: Math.ceil(total / perPage) });
   } catch (err) {
     console.error("getAllListingRequests:", err);
+    res.status(500).json({ ok: false, message: "Server error" });
+  }
+};
+
+// ADMIN: the deal with a company: new, following up, paid, link exchange or not interested.
+// PATCH /listing-requests/:id/deal   { deal, paidAt?, paidAmount?, linkExchangeUrl?, adminNote? }
+exports.updateListingDeal = async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!DEALS.includes(b.deal)) return res.status(400).json({ ok: false, message: "Invalid deal" });
+    const listing = await ListingRequest.findById(req.params.id);
+    if (!listing) return res.status(404).json({ ok: false, message: "Not found" });
+
+    if (listing.deal !== b.deal || !listing.dealUpdatedAt) listing.dealUpdatedAt = new Date();
+    listing.deal = b.deal;
+
+    if (b.deal === "paid") {
+      // The day the payment came. Without a date it is today.
+      const at = b.paidAt ? new Date(b.paidAt) : listing.paidAt || new Date();
+      if (Number.isNaN(at.getTime())) return res.status(400).json({ ok: false, message: "The payment date is not valid" });
+      listing.paidAt = at;
+      if (b.paidAmount !== undefined && b.paidAmount !== null && b.paidAmount !== "") {
+        const n = Number(b.paidAmount);
+        if (!Number.isFinite(n) || n < 0 || n > 10000000) return res.status(400).json({ ok: false, message: "The amount is not valid" });
+        listing.paidAmount = n;
+      } else if (b.paidAmount === "" || b.paidAmount === null) {
+        listing.paidAmount = null;
+      }
+    }
+
+    if (b.deal === "link_exchange" && b.linkExchangeUrl !== undefined) {
+      const url = String(b.linkExchangeUrl || "").trim();
+      if (url && !/^https?:\/\/[^\s"'<>]+$/i.test(url)) return res.status(400).json({ ok: false, message: "The link must start with http:// or https://" });
+      listing.linkExchangeUrl = url.slice(0, 500);
+    }
+
+    if (b.adminNote !== undefined) listing.adminNote = String(b.adminNote || "").trim().slice(0, 2000);
+    await listing.save();
+    res.json({ ok: true, data: listing });
+  } catch (err) {
+    console.error("updateListingDeal:", err);
+    res.status(500).json({ ok: false, message: "Server error" });
+  }
+};
+
+// ADMIN: tick or untick "mail sent" for a company. PATCH /listing-requests/:id/mail  { sent: true | false }
+exports.updateListingMail = async (req, res) => {
+  try {
+    const sent = req.body?.sent === true || req.body?.sent === "true";
+    const listing = await ListingRequest.findByIdAndUpdate(req.params.id, { $set: { mailSent: sent, mailSentAt: sent ? new Date() : null } }, { returnDocument: "after" });
+    if (!listing) return res.status(404).json({ ok: false, message: "Not found" });
+    res.json({ ok: true, data: listing });
+  } catch (err) {
+    console.error("updateListingMail:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -465,11 +538,17 @@ exports.updateListingStatus = async (req, res) => {
 };
 
 // ADMIN: Delete
+// Deleting a request deletes the company completely: its entry in the directory, its copy on every city, state and country
+// page, and its pictures on Cloudinary (a picture that something else still uses is kept).
 exports.deleteListingRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    await ListingRequest.findByIdAndDelete(id);
-    res.json({ ok: true, message: "Deleted" });
+    const listing = await ListingRequest.findByIdAndDelete(id);
+    if (!listing) return res.status(404).json({ ok: false, message: "Not found" });
+    // The request is gone first, so its own logo is not counted as "still in use".
+    const removed = listing.publishedCompanySlug ? await removeManagedItCompany(listing.publishedCompanySlug) : { found: false, pages: [], pictures: 0 };
+    const logo = await deletePictures([listing.logoUrl].filter(Boolean));
+    res.json({ ok: true, message: "Deleted", removed: { company: removed.found, pages: removed.pages, pictures: removed.pictures + logo } });
   } catch (err) {
     console.error("deleteListingRequest:", err);
     res.status(500).json({ ok: false, message: "Server error" });
