@@ -203,7 +203,7 @@ async function runMasterImport({ buffer, apply = false, metro = METRO_ENABLED, c
     if (!p.companies) continue;
     if (p.page.isNew) {
       const { _id, isNew, ...doc } = p.page;
-      await City.create({ ...doc, isPublished: true, faqs: [], content: "", hubCompanies: p.companies });
+      await City.create({ ...doc, isPublished: true, faqs: doc.faqs || [], content: doc.content || "", hubCompanies: p.companies });
       created += 1;
     } else {
       await City.updateOne({ _id: p.page._id }, { $set: { hubCompanies: p.companies } });
