@@ -223,16 +223,6 @@ exports.submitListingRequest = async (req, res) => {
           </td>
         </tr>
 
-        <!-- Plan selection -->
-        <tr>
-          <td style="background:${listing.listingType === "fast" ? "#f0fdf4" : "#eff6ff"};border-bottom:2px solid ${listing.listingType === "fast" ? "#059669" : "#0356A6"};padding:12px 32px;">
-            <p style="margin:0;color:${listing.listingType === "fast" ? "#065f46" : "#1e3a8a"};font-size:13px;font-weight:700;">
-              ${listing.listingType === "fast" ? "🚀 Fast Approval ($100)" : "🆓 Free Listing ($0)"}
-              ${listing.featuredAddon ? " &nbsp;·&nbsp; ⭐ Featured Listing Add-on requested" : ""}
-            </p>
-          </td>
-        </tr>
-
         <!-- Company Info -->
         <tr>
           <td style="padding:24px 32px 8px;">

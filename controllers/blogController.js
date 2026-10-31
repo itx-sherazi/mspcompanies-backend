@@ -15,6 +15,21 @@ async function uploadToCloudinary(buffer, mimetype) {
   });
 }
 
+const ManagedItCompany = require("../models/ManagedItCompany");
+
+/** The company fields of a blog, cleaned. Only the fields that were sent are returned. */
+function companyFields(body) {
+  const out = {};
+  if (body.companySlug !== undefined) out.companySlug = String(body.companySlug || "").trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 200);
+  if (body.publishedBy !== undefined) out.publishedBy = String(body.publishedBy || "").trim().slice(0, 120);
+  if (body.originalUrl !== undefined) {
+    const u = String(body.originalUrl || "").trim();
+    out.originalUrl = /^https?:\/\/[^\s"'<>]+$/i.test(u) ? u.slice(0, 500) : "";
+  }
+  if (body.isSponsored !== undefined) out.isSponsored = body.isSponsored === true || body.isSponsored === "true";
+  return out;
+}
+
 exports.createBlog = async (req, res) => {
   try {
     const { title, slug, body, category, tags, author, metaTitle, metaDescription, faqs, published } = req.body;
@@ -54,6 +69,7 @@ exports.createBlog = async (req, res) => {
       metaDescription: metaDescription || "",
       faqs: parsedFaqs,
       published: published === "true" || published === true,
+      ...companyFields(req.body),
     });
 
     const { body: _body, ...blogObj } = blog.toObject();
@@ -104,6 +120,7 @@ exports.updateBlog = async (req, res) => {
     blog.metaTitle = metaTitle !== undefined ? metaTitle : blog.metaTitle;
     blog.metaDescription = metaDescription !== undefined ? metaDescription : blog.metaDescription;
     blog.faqs = parsedFaqs;
+    Object.assign(blog, companyFields(req.body));
     if (published !== undefined) {
       blog.published = published === "true" || published === true;
     }
@@ -202,7 +219,14 @@ exports.getBlogBySlug = async (req, res) => {
   try {
     const blog = await Blog.findOne({ slug: req.params.slug, published: true });
     if (!blog) return res.status(404).json({ message: "Blog not found" });
-    res.json({ data: blog });
+    // The company card is read from the directory at this moment, so it follows the company's profile.
+    let company = null;
+    if (blog.companySlug) {
+      const c = await ManagedItCompany.findOne({ slug: blog.companySlug, isPublished: { $ne: false } })
+        .select("slug companyName image description tagline companyCity companyState website").lean();
+      if (c) company = c;
+    }
+    res.json({ data: { ...blog.toObject(), company } });
   } catch (error) {
     console.error("getBlogBySlug error:", error);
     res.status(500).json({ message: "Server error" });
