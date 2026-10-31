@@ -53,6 +53,7 @@ const STRING_FIELDS = {
   companyPostalCode: 30, address: 400, phone: 60, serviceArea: 400, supportHours: 200, clientSizeFocus: 300, specialization: 300, tagline: 200,
 };
 const LONG_FIELDS = { description: 5000, profileSummary: 8000 };
+const MAX_EXTRA_PAGES = 30;
 const LIST_FIELDS = ["companyServices", "companyPartners", "keywords", "technologies", "industriesServed", "certifications", "complianceFrameworks"];
 
 /** The editable fields of a request body, cleaned. Only the fields that were sent are returned. Throws { field } on a bad value. */
@@ -70,6 +71,11 @@ function cleanBody(body) {
   if (body.foundedYear !== undefined) {
     const n = parseInt(body.foundedYear, 10);
     out.foundedYear = Number.isFinite(n) && n > 1700 && n <= new Date().getFullYear() ? n : null;
+  }
+  if (body.extraPages !== undefined) {
+    const list = Array.isArray(body.extraPages) ? body.extraPages : [];
+    out.extraPages = [...new Set(list.map((x) => String(x || "").trim().toLowerCase()).filter((x) => /^(managed-service-providers|top-msps)\/[a-z0-9-]{1,100}$/.test(x)))];
+    if (out.extraPages.length > MAX_EXTRA_PAGES) throw Object.assign(new Error(`A company can be chosen for at most ${MAX_EXTRA_PAGES} extra pages`), { field: "extraPages" });
   }
   if (body.isSponsored !== undefined) out.isSponsored = body.isSponsored === true || /^(y|yes|true|1)$/i.test(String(body.isSponsored));
   if (body.indexEligible !== undefined) out.indexEligible = body.indexEligible === true || /^(y|yes|true|1)$/i.test(String(body.indexEligible));
@@ -100,6 +106,14 @@ async function syncPageCopies(slug, changes) {
   if (changes.industry !== undefined) set["hubCompanies.$[c].industryTags"] = String(changes.industry).split(",").map((x) => x.trim()).filter(Boolean);
   if (!Object.keys(set).length) return;
   await City.updateMany({ "hubCompanies.slug": slug }, { $set: set }, { arrayFilters: [{ "c.slug": slug }] });
+}
+
+/** Keeps only the "hubSlug/slug" keys that are real city, state or country pages. */
+async function existingPages(keys) {
+  if (!keys.length) return [];
+  const pages = await City.find({ hubSlug: { $in: ["managed-service-providers", "top-msps"] }, slug: { $in: keys.map((k) => k.split("/")[1]) } }).select("hubSlug slug").lean();
+  const real = new Set(pages.map((p) => `${p.hubSlug}/${p.slug}`));
+  return keys.filter((k) => real.has(k));
 }
 
 // ── logo upload ─────────────────────────────────────────────────────────
@@ -217,7 +231,8 @@ exports.createCompany = async (req, res) => {
 
     const used = new Set((await dir.Model.find({}).select("slug").lean()).map((d) => d.slug));
     const slug = makeSlug({ companyName: data.companyName, companyCity: data.companyCity }, used);
-    if (req.params.directory !== "mit") delete data.isSponsored;
+    if (req.params.directory !== "mit") { delete data.isSponsored; delete data.extraPages; }
+    if (data.extraPages) data.extraPages = await existingPages(data.extraPages);
     const doc = await dir.Model.create({ ...data, slug, isPublished: data.isPublished !== false });
     if (dir.relink) await dir.relink();
     const placed = req.params.directory === "mit" ? await placeCompanyOnPages(slug) : null;
@@ -250,7 +265,8 @@ exports.updateCompany = async (req, res) => {
     try { changes = cleanBody(req.body || {}); } catch (e) { return res.status(400).json({ ok: false, message: e.message, field: e.field }); }
     if (changes.companyName !== undefined && !changes.companyName) return res.status(400).json({ ok: false, message: "Company name is required", field: "companyName" });
     const slug = String(req.params.slug).toLowerCase();
-    if (req.params.directory !== "mit") delete changes.isSponsored; // only Managed IT companies sit on city, state and country pages
+    if (req.params.directory !== "mit") { delete changes.isSponsored; delete changes.extraPages; } // only Managed IT companies sit on city, state and country pages
+    if (changes.extraPages) changes.extraPages = await existingPages(changes.extraPages);
     const doc = await dir.Model.findOneAndUpdate({ slug }, { $set: changes }, { returnDocument: "after", runValidators: true }).select("-__v").lean();
     if (!doc) return res.status(404).json({ ok: false, message: "Company not found" });
     let placed = null;

@@ -39,7 +39,8 @@ async function placeCompanyOnPages(slug) {
     const rule = ruleForPage(page);
     if (rule.kind === "skip") continue;
     const copy = (page.hubCompanies || []).find((c) => c.slug === slug);
-    const belongs = rule.match(cleaned);
+    // By location, or chosen for this page in the dashboard.
+    const belongs = rule.match(cleaned) || (company.extraPages || []).includes(`${page.hubSlug}/${page.slug}`);
 
     if (belongs && !copy) {
       const full = await City.findById(page._id).select("hubCompanies").lean();

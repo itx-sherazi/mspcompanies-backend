@@ -56,6 +56,8 @@ const managedItCompanySchema = new mongoose.Schema(
     isPublished: { type: Boolean, default: true },
     /** Sponsored in the dashboard: its copy on every city, state and country page it belongs to is marked sponsored. */
     isSponsored: { type: Boolean, default: false },
+    /** Pages the company is shown on besides the ones its location gives it, chosen in the dashboard: "hubSlug/slug". */
+    extraPages: { type: [String], default: [] },
     /** Came from an approved Get Listed request. Every Master Sheet import keeps these. */
     fromListing: { type: Boolean, default: false, index: true },
     listingRequestId: { type: String, default: "" },

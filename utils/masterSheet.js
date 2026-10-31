@@ -406,6 +406,7 @@ function mergeWithExisting(sheetCompanies, existingDocs) {
     for (const k of MERGE_FIELDS) if (isBlank(c[k]) && !isBlank(hit[k])) c[k] = hit[k];
     if (!c._indexCell) c.indexEligible = Boolean(hit.indexEligible);
     if (hit.isPublished === false) c.isPublished = false;
+    if (Array.isArray(hit.extraPages) && hit.extraPages.length) c.extraPages = hit.extraPages;
     // A company sponsored in the dashboard stays sponsored on its pages when a sheet updates it.
     if (hit.isSponsored === true) c.isSponsored = true;
     if (hit.fromListing) c.fromListing = true;
@@ -443,7 +444,9 @@ function planDistribution(companies, pages, { metro = METRO_ENABLED, maxCompanie
 
     const sponsoredDomains = new Set(sponsored.map((c) => domainOf(c.website)).filter(Boolean));
     const sponsoredNames = new Set(sponsored.map((c) => nameKey(c.companyName)));
-    let matched = sortForDisplay(companies.filter((c) => rule.match(c)));
+    // A company belongs to a page by its location (the rule) or because it was chosen for that page in the dashboard.
+    const pageKey = `${page.hubSlug}/${page.slug}`;
+    let matched = sortForDisplay(companies.filter((c) => rule.match(c) || (Array.isArray(c.extraPages) && c.extraPages.includes(pageKey))));
     // Do not list a sponsored company twice.
     matched = matched.filter((c) => !(sponsoredDomains.has(domainOf(c.website)) || sponsoredNames.has(nameKey(c.companyName))));
 
