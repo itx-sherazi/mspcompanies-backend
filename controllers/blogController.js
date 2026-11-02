@@ -30,6 +30,19 @@ function companyFields(body) {
   return out;
 }
 
+/** The meta description of the post. A post without one gets the first words of its text, cut at a word. */
+function excerptOf(body, metaDescription, max = 320) {
+  const text = String(metaDescription || "").replace(/\s+/g, " ").trim() || String(body || "")
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= max) return text;
+  return text.slice(0, max).replace(/\s+\S*$/, "") + "[…]";
+}
+
 exports.createBlog = async (req, res) => {
   try {
     const { title, slug, body, category, tags, author, metaTitle, metaDescription, faqs, published } = req.body;
@@ -157,14 +170,30 @@ exports.getBlogs = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const total = await Blog.countDocuments({ published: true });
-    const blogs = await Blog.find({ published: true })
+    const rows = await Blog.find({ published: true })
       .sort({ date: -1 })
       .skip(skip)
       .limit(limit)
-      .select("-body");
+      .lean();
+
+    // The list shows a short text of each post and the company that published it.
+    const slugs = [...new Set(rows.map((b) => b.companySlug).filter(Boolean))];
+    const companies = slugs.length
+      ? await ManagedItCompany.find({ slug: { $in: slugs } }).select("slug companyName").lean()
+      : [];
+    const nameOf = new Map(companies.map((c) => [c.slug, c.companyName]));
+    const blogs = rows.map(({ body, ...b }) => ({
+      ...b,
+      excerpt: excerptOf(body, b.metaDescription),
+      companyName: b.companySlug ? nameOf.get(b.companySlug) || "" : "",
+    }));
+
+    // The newest posts, for the side list. It is the same on every page of the list.
+    const latest = await Blog.find({ published: true }).sort({ date: -1 }).limit(6).select("title slug date").lean();
 
     res.json({
       data: blogs,
+      latest,
       currentPage: page,
       totalPages: Math.ceil(total / limit),
       totalPosts: total,

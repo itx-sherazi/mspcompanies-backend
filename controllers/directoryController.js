@@ -13,8 +13,9 @@ const FILTERS_TTL_MS = 5 * 60 * 1000;
  * managed IT (ManagedItCompany) and managed security (MsspCompany).
  *   sort       : order of the public list
  *   placeSlugs : the model has cityPageSlug / statePageSlug / countryPageSlug, so ?place={slug} lists one page
+ *   decorate   : async (company) => fields added to the profile answer
  */
-function createDirectoryController(Model, { sort = { companyName: 1 }, placeSlugs = false } = {}) {
+function createDirectoryController(Model, { sort = { companyName: 1 }, placeSlugs = false, decorate = null } = {}) {
 const c = {};
 
 // ── Public ──────────────────────────────────────────────
@@ -206,6 +207,10 @@ c.getCompany = async (req, res) => {
       isPublished: true,
     }).lean();
     if (!company) return res.status(404).json({ ok: false, message: "Company not found" });
+    if (decorate) {
+      // Extra data for the profile. It never hides the profile when it fails.
+      try { Object.assign(company, await decorate(company)); } catch (err) { console.error("decorate:", err.message); }
+    }
     res.set("Cache-Control", "private, no-store");
     res.json({ ok: true, data: company });
   } catch (err) {
