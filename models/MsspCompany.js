@@ -33,6 +33,8 @@ const msspCompanySchema = new mongoose.Schema(
     supportHours: { type: String, default: "" },
     /** Only profiles with indexEligible === true are indexable by Google. */
     indexEligible: { type: Boolean, default: false },
+    /** The profile has no "Claim this profile" button (a paid listing, or a company that already owns its profile). */
+    claimHidden: { type: Boolean, default: false },
     clientSizeFocus: { type: String, default: "" },
     specialization: { type: String, default: "" },
     complianceFrameworks: { type: [String], default: [] },

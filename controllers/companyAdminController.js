@@ -77,6 +77,7 @@ function cleanBody(body) {
     out.extraPages = [...new Set(list.map((x) => String(x || "").trim().toLowerCase()).filter((x) => /^(managed-service-providers|top-msps)\/[a-z0-9-]{1,100}$/.test(x)))];
     if (out.extraPages.length > MAX_EXTRA_PAGES) throw Object.assign(new Error(`A company can be chosen for at most ${MAX_EXTRA_PAGES} extra pages`), { field: "extraPages" });
   }
+  if (body.claimHidden !== undefined) out.claimHidden = body.claimHidden === true || /^(y|yes|true|1)$/i.test(String(body.claimHidden));
   if (body.isSponsored !== undefined) out.isSponsored = body.isSponsored === true || /^(y|yes|true|1)$/i.test(String(body.isSponsored));
   if (body.indexEligible !== undefined) out.indexEligible = body.indexEligible === true || /^(y|yes|true|1)$/i.test(String(body.indexEligible));
   if (body.isPublished !== undefined) out.isPublished = !(body.isPublished === false || /^(n|no|false|0)$/i.test(String(body.isPublished)));
@@ -145,7 +146,7 @@ exports.uploadLogo = async (req, res) => {
 
 // ── list ────────────────────────────────────────────────────────────────
 
-const LIST_FIELDS_OUT = { slug: 1, companyName: 1, companyCity: 1, companyState: 1, companyCountry: 1, employees: 1, website: 1, image: 1, indexEligible: 1, isPublished: 1, isSponsored: 1, updatedAt: 1 };
+const LIST_FIELDS_OUT = { slug: 1, companyName: 1, companyCity: 1, companyState: 1, companyCountry: 1, employees: 1, website: 1, image: 1, indexEligible: 1, isPublished: 1, isSponsored: 1, claimHidden: 1, updatedAt: 1 };
 
 function listFilter(query) {
   const filter = {};

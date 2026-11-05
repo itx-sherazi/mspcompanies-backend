@@ -27,6 +27,7 @@ function directoryFor(pagePath) {
   if (String(pagePath).startsWith(CYBER_PREFIX)) return CyberSecurityCompany;
   return ManagedItCompany;
 }
+exports.directoryFor = directoryFor;
 function samePathGroup(pagePath) {
   if (String(pagePath).startsWith(MSSP_PREFIX)) return { $regex: `^${MSSP_PREFIX}` };
   if (String(pagePath).startsWith(CYBER_PREFIX)) return { $regex: `^${CYBER_PREFIX}` };
@@ -107,9 +108,10 @@ exports.submitClaim = async (req, res) => {
 
   try {
     // The company's own website, to check that the email belongs to it.
-    const company = await directoryFor(pagePath).findOne({ slug: companySlug }).select("website companyName").lean();
+    const company = await directoryFor(pagePath).findOne({ slug: companySlug }).select("website companyName claimHidden").lean();
     // A claim is only for a profile that exists. The company name in the emails always comes from our own data.
     if (!company) return res.status(404).json({ ok: false, message: "We could not find this company profile." });
+    if (company.claimHidden) return res.status(400).json({ ok: false, message: "This profile is already managed. Please contact us if you need a change." });
     const companyWebsite = company.website || "";
     const domainMatch = sameCompanyDomain(email, companyWebsite);
 
