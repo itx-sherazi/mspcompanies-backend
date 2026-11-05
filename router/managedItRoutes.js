@@ -11,9 +11,12 @@ const {
   deleteAll,
 } = require("../controllers/managedItController");
 
+const { getMoved } = require("../controllers/companyMovedController");
+
 const router = express.Router();
 
 // Public
+router.get("/company-moved/:directory/:slug",    getMoved);
 router.get("/managed-it-services/filters",         getFilters);
 router.get("/managed-it-services",                 listCompanies);
 router.get("/managed-it-services/sitemap-entries", getSitemapEntries);

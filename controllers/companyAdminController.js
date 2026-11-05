@@ -16,6 +16,7 @@ const MsspPage = require("../models/MsspPage");
 const CyberSecurityCompany = require("../models/CyberSecurityCompany");
 const CyberPage = require("../models/CyberPage");
 const City = require("../models/City");
+const Blog = require("../models/Blog");
 const publicCache = require("../utils/memoryCache");
 const { escapeRegex, queryString } = require("../utils/escapeRegex");
 const { makeSlug, domainOf, norm } = require("../utils/masterSheet");
@@ -50,9 +51,24 @@ const link = (v) => {
 const LINK_FIELDS = ["website", "linkedinUrl", "facebookUrl", "twitterUrl", "image", "bookingUrl", "googleMapsUrl"];
 const STRING_FIELDS = {
   companyName: 200, employees: 50, revenueSize: 80, industry: 300, companyStreet: 200, companyCity: 120, companyState: 120, companyCountry: 120,
-  companyPostalCode: 30, address: 400, phone: 60, serviceArea: 400, supportHours: 200, clientSizeFocus: 300, specialization: 300, tagline: 200,
+  companyPostalCode: 30, address: 400, phone: 60, serviceArea: 400, supportHours: 200, clientSizeFocus: 300, specialization: 300, tagline: 200, metaTitle: 120,
 };
-const LONG_FIELDS = { description: 5000, profileSummary: 8000 };
+const LONG_FIELDS = { description: 5000, profileSummary: 8000, metaDescription: 320 };
+
+// ── profile link (slug) ──
+const cleanSlug = (v) => String(v ?? "").toLowerCase().trim().replace(/\s+/g, "-");
+const RESERVED_SLUGS = new Set(["filters", "sitemap-entries", "related", "all", "new"]);
+/** "" when the slug is fine, else the reason. */
+function slugProblem(slug) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return "The profile link can only have lowercase letters, numbers and single hyphens, for example acme-it-chicago.";
+  if (slug.length > 120) return "The profile link is too long (120 characters at most).";
+  if (RESERVED_SLUGS.has(slug)) return "This profile link is reserved. Please choose another.";
+  return "";
+}
+/** Free when no company uses it now and no other company used it before (its old link redirects there). */
+async function slugIsFree(Model, slug, currentSlug = "") {
+  return !(await Model.exists({ $or: [{ slug }, { oldSlugs: slug, slug: { $ne: currentSlug } }] }));
+}
 const MAX_EXTRA_PAGES = 30;
 const LIST_FIELDS = ["companyServices", "companyPartners", "keywords", "technologies", "industriesServed", "certifications", "complianceFrameworks"];
 
@@ -230,8 +246,18 @@ exports.createCompany = async (req, res) => {
     const twin = sameSite.find((c) => norm(c.companyCity) === norm(data.companyCity) && domainOf(data.website));
     if (twin) return res.status(409).json({ ok: false, message: `This company is already in the ${dir.label} directory (${twin.slug}).`, slug: twin.slug });
 
-    const used = new Set((await dir.Model.find({}).select("slug").lean()).map((d) => d.slug));
-    const slug = makeSlug({ companyName: data.companyName, companyCity: data.companyCity }, used);
+    let slug;
+    const wanted = cleanSlug(req.body.slug);
+    if (wanted) {
+      const problem = slugProblem(wanted);
+      if (problem) return res.status(400).json({ ok: false, message: problem, field: "slug" });
+      if (!(await slugIsFree(dir.Model, wanted))) return res.status(409).json({ ok: false, message: `The profile link "${wanted}" is already used by another company, or was used before.`, field: "slug" });
+      slug = wanted;
+    } else {
+      const used = new Set();
+      for (const d of await dir.Model.find({}).select("slug oldSlugs").lean()) { used.add(d.slug); for (const o of d.oldSlugs || []) used.add(o); }
+      slug = makeSlug({ companyName: data.companyName, companyCity: data.companyCity }, used);
+    }
     if (req.params.directory !== "mit") { delete data.isSponsored; delete data.extraPages; }
     if (data.extraPages) data.extraPages = await existingPages(data.extraPages);
     const doc = await dir.Model.create({ ...data, slug, isPublished: data.isPublished !== false });
@@ -257,7 +283,7 @@ exports.createCompany = async (req, res) => {
   }
 };
 
-/** PUT /api/v1/admin/companies/:directory/:slug  (the slug of a company never changes: its profile link stays) */
+/** PUT /api/v1/admin/companies/:directory/:slug  (a new "slug" in the body moves the profile; the old link redirects to the new one) */
 exports.updateCompany = async (req, res) => {
   try {
     const dir = directoryOf(req, res);
@@ -268,19 +294,37 @@ exports.updateCompany = async (req, res) => {
     const slug = String(req.params.slug).toLowerCase();
     if (req.params.directory !== "mit") { delete changes.isSponsored; delete changes.extraPages; } // only Managed IT companies sit on city, state and country pages
     if (changes.extraPages) changes.extraPages = await existingPages(changes.extraPages);
+    // A new profile link: the old one is kept in oldSlugs and redirects.
+    let newSlug = slug;
+    const wanted = cleanSlug(req.body.slug);
+    if (wanted && wanted !== slug) {
+      const problem = slugProblem(wanted);
+      if (problem) return res.status(400).json({ ok: false, message: problem, field: "slug" });
+      if (!(await slugIsFree(dir.Model, wanted, slug))) return res.status(409).json({ ok: false, message: `The profile link "${wanted}" is already used by another company, or was used before.`, field: "slug" });
+      const current = await dir.Model.findOne({ slug }).select("oldSlugs").lean();
+      if (!current) return res.status(404).json({ ok: false, message: "Company not found" });
+      changes.slug = wanted;
+      changes.oldSlugs = [...new Set([...(current.oldSlugs || []), slug])].filter((x) => x !== wanted);
+      newSlug = wanted;
+    }
     const doc = await dir.Model.findOneAndUpdate({ slug }, { $set: changes }, { returnDocument: "after", runValidators: true }).select("-__v").lean();
     if (!doc) return res.status(404).json({ ok: false, message: "Company not found" });
+    if (newSlug !== slug && req.params.directory === "mit") {
+      // the copies on the city, state and country pages and the blogs written for the company follow the new link
+      await City.updateMany({ "hubCompanies.slug": slug }, { $set: { "hubCompanies.$[c].slug": newSlug } }, { arrayFilters: [{ "c.slug": slug }] });
+      await Blog.updateMany({ companySlug: slug }, { $set: { companySlug: newSlug } });
+    }
     let placed = null;
     if (req.params.directory === "mit") {
-      await syncPageCopies(slug, changes);
+      await syncPageCopies(newSlug, changes);
       // Every save checks that the company is on the pages it belongs to and not on the others. A new city, state or
       // country moves it, a sponsor mark puts it on its pages, and a company that was left on the wrong pages by an
       // earlier save or an upload is put right the next time it is saved.
-      placed = await placeCompanyOnPages(slug);
+      placed = await placeCompanyOnPages(newSlug);
     }
     if (dir.relink) await dir.relink();
     publicCache.clear();
-    res.json({ ok: true, data: { ...doc, directory: req.params.directory, profilePath: publicProfile(req.params.directory, slug) }, placed });
+    res.json({ ok: true, data: { ...doc, directory: req.params.directory, profilePath: publicProfile(req.params.directory, newSlug) }, placed });
   } catch (err) {
     console.error("admin updateCompany:", err);
     res.status(500).json({ ok: false, message: "Server error" });

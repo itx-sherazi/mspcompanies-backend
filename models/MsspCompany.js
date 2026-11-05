@@ -35,6 +35,11 @@ const msspCompanySchema = new mongoose.Schema(
     indexEligible: { type: Boolean, default: false },
     /** The profile has no "Claim this profile" button (a paid listing, or a company that already owns its profile). */
     claimHidden: { type: Boolean, default: false },
+    /** Title and description of the profile for Google. Empty = the automatic ones. */
+    metaTitle: { type: String, default: "", trim: true },
+    metaDescription: { type: String, default: "", trim: true },
+    /** Earlier profile links of the company. Each one redirects to the current slug. */
+    oldSlugs: { type: [String], default: [], index: true },
     clientSizeFocus: { type: String, default: "" },
     specialization: { type: String, default: "" },
     complianceFrameworks: { type: [String], default: [] },
