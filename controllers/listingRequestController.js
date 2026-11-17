@@ -301,37 +301,39 @@ exports.submitListingRequest = async (req, res) => {
 </html>`,
       }).catch(err => console.error("Admin email error:", err.message));
 
-      // ── Confirmation + paid listing question to the person who submitted (plain text, replies go to the editor inbox) ──
-      const oneLine = (v) => String(v || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-      const greetName = oneLine(listing.fullName || listing.personOfContact).split(" ")[0] || "there";
-      const submittedCompany = oneLine(listing.companyName);
-      const submittedCity = oneLine(listing.requestedCity);
-      transporter.sendMail({
-        from: `"MSP Companies" <${process.env.LISTING_SMTP_USER || process.env.CONTACT_SMTP_USER}>`,
-        replyTo: "editor@mspcompanies.us",
-        to: listing.contactEmail,
-        subject: "Your MSP Companies listing request",
-        text: [
-          `Hi ${greetName},`,
-          "",
-          `Thank you for submitting ${submittedCompany} to MSP Companies. We have received your details for the ${submittedCity} page.`,
-          "",
-          "Our paid listing includes:",
-          `• A published company profile on the ${submittedCity} page`,
-          "• Your services, location, website and logo",
-          "• A verified MSP badge",
-          "• A dofollow backlink to your website",
-          "• A lead inquiry option on your profile",
-          "• Priority placement in MSP near me searches",
-          "",
-          'Would you like to go ahead with the paid listing? Reply "Yes" or "Tell me more" and I will send the pricing and next steps. Once it is complete, we publish your profile.',
-          "",
-          'If this is not a fit, just reply "No" and I will close this out.',
-          "",
-          "Thank you,",
-          "MSP Companies",
-        ].join("\n"),
-      }).catch(err => console.error("Submitter email error:", err.message));
+      // The confirmation email to the person who submitted is switched off for now: only the editor inbox gets a mail (above).
+      // To switch it on again, remove the // in front of the lines below.
+      // // ── Confirmation + paid listing question to the person who submitted (plain text, replies go to the editor inbox) ──
+      // const oneLine = (v) => String(v || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+      // const greetName = oneLine(listing.fullName || listing.personOfContact).split(" ")[0] || "there";
+      // const submittedCompany = oneLine(listing.companyName);
+      // const submittedCity = oneLine(listing.requestedCity);
+      // transporter.sendMail({
+      //   from: `"MSP Companies" <${process.env.LISTING_SMTP_USER || process.env.CONTACT_SMTP_USER}>`,
+      //   replyTo: "editor@mspcompanies.us",
+      //   to: listing.contactEmail,
+      //   subject: "Your MSP Companies listing request",
+      //   text: [
+      //     `Hi ${greetName},`,
+      //     "",
+      //     `Thank you for submitting ${submittedCompany} to MSP Companies. We have received your details for the ${submittedCity} page.`,
+      //     "",
+      //     "Our paid listing includes:",
+      //     `• A published company profile on the ${submittedCity} page`,
+      //     "• Your services, location, website and logo",
+      //     "• A verified MSP badge",
+      //     "• A dofollow backlink to your website",
+      //     "• A lead inquiry option on your profile",
+      //     "• Priority placement in MSP near me searches",
+      //     "",
+      //     'Would you like to go ahead with the paid listing? Reply "Yes" or "Tell me more" and I will send the pricing and next steps. Once it is complete, we publish your profile.',
+      //     "",
+      //     'If this is not a fit, just reply "No" and I will close this out.',
+      //     "",
+      //     "Thank you,",
+      //     "MSP Companies",
+      //   ].join("\n"),
+      // }).catch(err => console.error("Submitter email error:", err.message));
     } catch (emailErr) {
       console.error("Listing request email error:", emailErr.message);
     }

@@ -141,7 +141,9 @@ exports.submitClaim = async (req, res) => {
     const resend = mailer();
     if (resend) {
       const plain = claim.toObject();
-      const [adminRes, userRes] = await Promise.allSettled([
+      // The confirmation email to the person who claims is switched off for now: only the editor inbox gets a mail.
+      // To switch it on again, put the second resend.emails.send back into the Promise.allSettled and read userRes below.
+      const [adminRes] = await Promise.allSettled([
         resend.emails.send({
           from: FROM_EMAIL,
           replyTo: email,
@@ -149,23 +151,23 @@ exports.submitClaim = async (req, res) => {
           subject: cleanSubject(`Profile claim: ${plain.companyName} (${name})`),
           html: adminHtml(plain),
         }),
-        resend.emails.send({
-          from: FROM_EMAIL,
-          replyTo: ADMIN_EMAIL,
-          to: email,
-          subject: cleanSubject(`We received your claim for ${plain.companyName}`),
-          text: userText(plain),
-        }),
+        // resend.emails.send({
+        //   from: FROM_EMAIL,
+        //   replyTo: ADMIN_EMAIL,
+        //   to: email,
+        //   subject: cleanSubject(`We received your claim for ${plain.companyName}`),
+        //   text: userText(plain),
+        // }),
       ]);
       const ok = (r) => r.status === "fulfilled" && !r.value?.error;
       if (!ok(adminRes)) console.error("claim admin email failed:", adminRes.reason || adminRes.value?.error);
-      if (!ok(userRes)) console.error("claim user email failed:", userRes.reason || userRes.value?.error);
-      await ClaimRequest.updateOne({ _id: claim._id }, { $set: { adminEmailSent: ok(adminRes), userEmailSent: ok(userRes) } });
+      // if (!ok(userRes)) console.error("claim user email failed:", userRes.reason || userRes.value?.error);
+      await ClaimRequest.updateOne({ _id: claim._id }, { $set: { adminEmailSent: ok(adminRes) } });
     } else {
       console.warn("claim saved but RESEND_API_KEY is not set, no email sent");
     }
 
-    res.json({ ok: true, message: "Request received. Check your inbox for a confirmation email." });
+    res.json({ ok: true, message: "Request received. Our team will be in touch." });
   } catch (err) {
     console.error("submitClaim:", err);
     res.status(500).json({ ok: false, message: "Something went wrong. Please try again." });
