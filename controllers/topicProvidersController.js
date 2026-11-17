@@ -7,6 +7,11 @@ const publicCache = require("../utils/memoryCache");
 // `query` is a ready filter (used when membership is a flag, not a word in the profile).
 const TOPICS = {
   sponsored: { query: { isSponsored: true } },
+  // Profiles that say they serve small business clients (their own words: "small business", "SMB", "small and mid-sized").
+  "small-business": {
+    regex: /\bsmall(?:[\s-]+(?:and|&)[\s-]+(?:mid|medium)[\s-]*sized?)?[\s-]+(?:business(?:es)?|compan(?:y|ies)|offices?)\b|\bsmbs?\b/i,
+    match: ["clientSizeFocus", "industriesServed", "specialization", "tagline", "profileSummary", "description", "keywords"],
+  },
   "co-managed": {
     regex: /co[\s-]?managed|comanaged/i,
     match: ["profileSummary", "description", "specialization", "tagline", "keywords", "companyServices"],
@@ -67,6 +72,11 @@ exports.listTopic = async (req, res) => {
   if (!topic) return res.status(404).json({ ok: false, message: "Unknown topic" });
   try {
     const all = await loadTopic(key, topic);
+    // ?names=1 returns only slug and name of every company, so a page can print a plain list of links
+    if (req.query.names === "1") {
+      res.set("Cache-Control", "public, max-age=60, s-maxage=300");
+      return res.json({ ok: true, topic: key, total: all.rows.length, data: all.rows.map((r) => ({ slug: r.slug, companyName: r.companyName })) });
+    }
     const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
     const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(String(req.query.limit || "24"), 10) || 24));
     const q = String(req.query.q || "").trim().slice(0, 80).toLowerCase();
