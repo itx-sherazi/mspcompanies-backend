@@ -12,12 +12,14 @@ const {
 } = require("../controllers/managedItController");
 
 const { getMoved } = require("../controllers/companyMovedController");
+const { listTopic } = require("../controllers/topicProvidersController");
 
 const router = express.Router();
 
 // Public
 router.get("/company-moved/:directory/:slug",    getMoved);
-router.get("/managed-it-services/filters",         getFilters);
+router.get("/provider-topics/:topic",              listTopic);
+router.get("/managed-it-services/filters",        getFilters);
 router.get("/managed-it-services",                 listCompanies);
 router.get("/managed-it-services/sitemap-entries", getSitemapEntries);
 router.get("/managed-it-services/:slug/related",   getRelated);

@@ -47,6 +47,7 @@ app.use("/api/v1/login", loginLimiter);
 app.use(
   [
     "/api/v1/managed-it-services",
+    "/api/v1/provider-topics",
     "/api/v1/managed-security-service-providers",
     "/api/v1/mssp-pages",
     "/api/v1/cybersecurity-companies",
