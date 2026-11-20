@@ -26,6 +26,17 @@ const CARD =
   "slug companyName image description tagline companyCity companyState companyCountry industry employees foundedYear revenueSize companyPartners technologies linkedinUrl twitterUrl facebookUrl supportHours indexEligible";
 
 const MAX_LIMIT = 50;
+
+/** Same list, different starting company. The start moves every day and differs per seed (one seed per page), so every
+ *  company gets the first places in turn and two pages do not open with the same companies. */
+function rotated(rows, seed) {
+  if (!seed || rows.length < 2) return rows;
+  const day = Math.floor(Date.now() / 86400000);
+  let h = day;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) % 1000003;
+  const start = h % rows.length;
+  return [...rows.slice(start), ...rows.slice(0, start)];
+}
 const tally = (rows, field) => {
   const m = new Map();
   rows.forEach((d) => d[field] && m.set(d[field], (m.get(d[field]) || 0) + 1));
@@ -83,8 +94,9 @@ exports.listTopic = async (req, res) => {
     const country = String(req.query.country || "").slice(0, 80);
     const state = String(req.query.state || "").slice(0, 80);
     const verified = req.query.verified === "1" || req.query.verified === "true";
+    const rotate = String(req.query.rotate || "").replace(/[^a-z0-9-]/gi, "").slice(0, 40);
 
-    const rows = all.rows.filter((r) => {
+    const rows = rotated(all.rows, rotate).filter((r) => {
       if (country && r.companyCountry !== country) return false;
       if (state && r.companyState !== state) return false;
       if (verified && !r.indexEligible) return false;
