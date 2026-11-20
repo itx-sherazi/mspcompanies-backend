@@ -15,12 +15,13 @@ async function uploadToCloudinary(buffer, mimetype) {
   });
 }
 
-const ManagedItCompany = require("../models/ManagedItCompany");
+const { cleanDirectory, findCompanyCard, companyNames } = require("../utils/blogCompany");
 
 /** The company fields of a blog, cleaned. Only the fields that were sent are returned. */
 function companyFields(body) {
   const out = {};
   if (body.companySlug !== undefined) out.companySlug = String(body.companySlug || "").trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 200);
+  if (body.companyDirectory !== undefined) out.companyDirectory = cleanDirectory(body.companyDirectory);
   if (body.publishedBy !== undefined) out.publishedBy = String(body.publishedBy || "").trim().slice(0, 120);
   if (body.originalUrl !== undefined) {
     const u = String(body.originalUrl || "").trim();
@@ -177,15 +178,11 @@ exports.getBlogs = async (req, res) => {
       .lean();
 
     // The list shows a short text of each post and the company that published it.
-    const slugs = [...new Set(rows.map((b) => b.companySlug).filter(Boolean))];
-    const companies = slugs.length
-      ? await ManagedItCompany.find({ slug: { $in: slugs } }).select("slug companyName").lean()
-      : [];
-    const nameOf = new Map(companies.map((c) => [c.slug, c.companyName]));
+    const nameOf = await companyNames(rows.map((b) => ({ directory: b.companyDirectory, slug: b.companySlug })));
     const blogs = rows.map(({ body, ...b }) => ({
       ...b,
       excerpt: excerptOf(body, b.metaDescription),
-      companyName: b.companySlug ? nameOf.get(b.companySlug) || "" : "",
+      companyName: b.companySlug ? nameOf.get(`${cleanDirectory(b.companyDirectory)}|${b.companySlug}`) || "" : "",
     }));
 
     // The newest posts, for the side list. It is the same on every page of the list.
@@ -251,9 +248,7 @@ exports.getBlogBySlug = async (req, res) => {
     // The company card is read from the directory at this moment, so it follows the company's profile.
     let company = null;
     if (blog.companySlug) {
-      const c = await ManagedItCompany.findOne({ slug: blog.companySlug, isPublished: { $ne: false } })
-        .select("slug companyName image description tagline companyCity companyState website").lean();
-      if (c) company = c;
+      company = await findCompanyCard(blog.companyDirectory, blog.companySlug);
     }
     res.json({ data: { ...blog.toObject(), company } });
   } catch (error) {

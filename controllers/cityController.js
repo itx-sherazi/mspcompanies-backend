@@ -1,5 +1,6 @@
 const path = require("path");
 const publicCache = require("../utils/memoryCache");
+const { searchDirectories } = require("../utils/blogCompany");
 const fs = require("fs/promises");
 const City = require("../models/City.js");
 const ManagedItCompany = require("../models/ManagedItCompany.js");
@@ -960,6 +961,12 @@ exports.searchCompanies = async (req, res) => {
     const q = String(req.query.q || "").trim();
     const limit = Math.min(parseInt(req.query.limit) || 8, 20);
     if (!q) return res.json({ ok: true, data: [] });
+
+    // The dashboard blog form asks for every directory (MSP, MSSP, cybersecurity, vendor) with ?directory=all.
+    if (req.query.directory) {
+      const data = await searchDirectories(q, String(req.query.directory), limit);
+      return res.json({ ok: true, data });
+    }
 
     // One list of companies: the directory. (Searching every city page copy returned the same company many times.)
     const rows = await ManagedItCompany.find({ companyName: new RegExp(escapeRegex(q), "i") })

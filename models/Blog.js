@@ -20,6 +20,8 @@ const blogSchema = new mongoose.Schema(
     published: { type: Boolean, default: false },
     // A blog written for a listed company: shown with the company card beside it and a byline at the end.
     companySlug: { type: String, default: "", trim: true, lowercase: true },
+    // Which directory the company is in. Slugs can repeat across directories. Old blogs are MSP.
+    companyDirectory: { type: String, enum: ["msp", "mssp", "cyber", "vendor"], default: "msp" },
     publishedBy: { type: String, default: "", trim: true },
     // Where the blog first appeared, when it was published on the company's own site. Becomes the canonical link.
     originalUrl: { type: String, default: "", trim: true },
