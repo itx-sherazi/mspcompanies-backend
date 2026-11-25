@@ -16,6 +16,11 @@ const TOPICS = {
     regex: /co[\s-]?managed|comanaged/i,
     match: ["profileSummary", "description", "specialization", "tagline", "keywords", "companyServices"],
   },
+  // Profiles that say they serve financial firms (their own words: banks, credit unions, RIAs, lenders, wealth managers...).
+  financial: {
+    regex: /financial|\bbank(?:s|ing)?\b|credit[\s-]+unions?|wealth[\s-]+manage|broker[\s-]?dealers?|investment[\s-]+(?:firms?|advis|manage)|\bRIAs?\b|\blenders?\b|mortgage|fintech|insurance/i,
+    match: ["industriesServed", "specialization", "clientSizeFocus", "tagline", "profileSummary", "description", "keywords", "complianceFrameworks"],
+  },
   // Examples for the next pages (not used yet):
   // hipaa: { regex: /hipaa/i, match: ["complianceFrameworks"] },
   // cmmc:  { regex: /cmmc/i,  match: ["complianceFrameworks"] },
