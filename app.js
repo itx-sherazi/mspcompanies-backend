@@ -48,6 +48,7 @@ app.use(
   [
     "/api/v1/managed-it-services",
     "/api/v1/provider-topics",
+    "/api/v1/reviews",
     "/api/v1/managed-security-service-providers",
     "/api/v1/mssp-pages",
     "/api/v1/cybersecurity-companies",
@@ -69,6 +70,7 @@ app.use("/api/v1", require("./router/cityRoutes"));
 app.use("/api/v1", require("./router/blogRoutes"));
 app.use("/api/v1", require("./router/emailRoutes"));
 app.use("/api/v1", require("./router/claimRoutes"));
+app.use("/api/v1", require("./router/reviewRoutes"));
 app.use("/api/v1", require("./router/dataRequestRoutes"));
 app.use("/api/v1", require("./router/listingRequestRoutes"));
 app.use("/api/v1", require("./router/managedItRoutes"));
