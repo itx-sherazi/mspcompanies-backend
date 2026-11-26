@@ -37,9 +37,15 @@ c.listCompanies = async (req, res) => {
 
     // city search  matches city, state, OR country
     if (req.query.city) {
-      const cityRe = new RegExp(escapeRegex(short(req.query.city)), "i");
+      const term = short(req.query.city);
       filter.$and = filter.$and || [];
-      filter.$and.push({ $or: [{ companyCity: cityRe }, { companyState: cityRe }, { companyCountry: cityRe }] });
+      if (/^d{5}(-d{4})?$/.test(term)) {
+        // a ZIP code (the search box of the home page takes "City or ZIP")
+        filter.$and.push({ companyPostalCode: new RegExp("^" + term.slice(0, 5)) });
+      } else {
+        const cityRe = new RegExp(escapeRegex(term), "i");
+        filter.$and.push({ $or: [{ companyCity: cityRe }, { companyState: cityRe }, { companyCountry: cityRe }] });
+      }
     }
 
     if (req.query.industry) filter.industry = { $regex: new RegExp(escapeRegex(short(req.query.industry)), "i") };
